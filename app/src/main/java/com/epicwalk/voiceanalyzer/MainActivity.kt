@@ -46,6 +46,8 @@ import com.epicwalk.voiceanalyzer.audio.RecordingState
 import com.epicwalk.voiceanalyzer.core.ScribeViewModel
 import com.epicwalk.voiceanalyzer.core.durationLabel
 import com.epicwalk.voiceanalyzer.data.Conversation
+import com.epicwalk.voiceanalyzer.data.Utterance
+import kotlinx.coroutines.flow.flowOf
 import com.epicwalk.voiceanalyzer.ui.theme.VoiceAnalyzerTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -109,6 +111,8 @@ private fun PrivateScribe(model: ScribeViewModel, record: () -> Unit) {
     val busy by model.busy.collectAsStateWithLifecycle()
     val error by model.error.collectAsStateWithLifecycle()
     val playing by model.playing.collectAsStateWithLifecycle()
+    val processing by model.processing.collectAsStateWithLifecycle()
+    val models by model.modelState.collectAsStateWithLifecycle()
     var selectedId by rememberSaveable { mutableStateOf<String?>(null) }
     var settings by rememberSaveable { mutableStateOf(false) }
     var search by rememberSaveable { mutableStateOf("") }
@@ -116,6 +120,10 @@ private fun PrivateScribe(model: ScribeViewModel, record: () -> Unit) {
     var delete by rememberSaveable { mutableStateOf(false) }
     var titleDraft by rememberSaveable { mutableStateOf("") }
     val selected = conversations.firstOrNull { it.id == selectedId }
+    val transcriptFlow = remember(selectedId) {
+        selectedId?.let { model.utterances(it) } ?: flowOf(emptyList<Utterance>())
+    }
+    val transcript by transcriptFlow.collectAsStateWithLifecycle(initialValue = emptyList())
     val import = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let { model.import(it) }
     }
@@ -185,12 +193,58 @@ private fun PrivateScribe(model: ScribeViewModel, record: () -> Unit) {
                         }
                     }
                 }
+                if (processing.id == selected.id) item {
+                    SectionCard {
+                        Text(processing.stage, style = MaterialTheme.typography.titleMedium)
+                        if (processing.totalMs > 0) {
+                            LinearProgressIndicator(
+                                progress = { (processing.processedMs.toFloat() / processing.totalMs).coerceIn(0f, 1f) },
+                                modifier = Modifier.fillMaxWidth())
+                            Text("${durationLabel(processing.processedMs)} из ${durationLabel(processing.totalMs)} аудио",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        } else LinearProgressIndicator(Modifier.fillMaxWidth())
+                        OutlinedButton(onClick = model::cancelProcessing, enabled = !processing.cancelling) { Text("Отменить обработку") }
+                    }
+                }
+                if (selected.status in listOf("READY", "ERROR", "CANCELLED", "INTERRUPTED") &&
+                    selected.audioPath.isNotEmpty() && processing.id != selected.id) item {
+                    SectionCard {
+                        Text("Локальное распознавание", style = MaterialTheme.typography.titleLarge)
+                        Text("GigaAM v3 · CPU · русский язык", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Button(onClick = { model.process(selected.id) },
+                            enabled = models.asrReady && !models.installing && processing.id == null) {
+                            Icon(Icons.Rounded.AutoAwesome, null); Spacer(Modifier.width(8.dp))
+                            Text(if (selected.status == "READY") "Распознать речь" else "Продолжить обработку")
+                        }
+                        if (!models.asrReady) TextButton(onClick = { settings = true; selectedId = null }) { Text("Установить модели") }
+                    }
+                }
                 item {
+                    Text("Расшифровка · ${transcript.size}", style = MaterialTheme.typography.titleLarge)
+                    Text("Говорящие пока не определены. Времена — интервалы VAD, а не точные границы слов.",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                if (transcript.isEmpty()) item {
                     SectionCard {
                         Icon(Icons.AutoMirrored.Rounded.TextSnippet, null, tint = MaterialTheme.colorScheme.primary)
-                        Text("Расшифровка", style = MaterialTheme.typography.titleLarge)
-                        Text("Аудио сохранено. Подключение локального распознавания к этому экрану — следующий этап разработки.",
+                        Text(if (selected.status == "TRANSCRIBED") "Текстовых реплик не получено" else "Здесь появятся реплики",
+                            style = MaterialTheme.typography.titleMedium)
+                        Text(if (selected.status == "TRANSCRIBED") "Распознавание завершено. Проверьте аудио и наличие разборчивой речи."
+                            else "После установки моделей запустите распознавание. Результаты сохраняются по мере обработки.",
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                items(transcript, key = { it.id }) { utterance ->
+                    Card(onClick = { model.playFrom(selected.id, selected.audioPath, utterance.startMs) },
+                        shape = RoundedCornerShape(20.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
+                        Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Text("${durationLabel(utterance.startMs)} — ${durationLabel(utterance.endMs)}",
+                                style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                            Text(utterance.editedText ?: utterance.rawText, style = MaterialTheme.typography.bodyLarge)
+                            Text("Говорящий не определён · нажмите, чтобы прослушать",
+                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
                     }
                 }
             }
@@ -342,6 +396,10 @@ private fun RecorderPanel(state: RecordingState, control: (String) -> Unit) {
 private fun SettingsScreen(model: ScribeViewModel, padding: PaddingValues) {
     val theme by model.theme.collectAsStateWithLifecycle()
     val dynamic by model.dynamicColor.collectAsStateWithLifecycle()
+    val models by model.modelState.collectAsStateWithLifecycle()
+    val folder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        uri?.let(model::installModels)
+    }
     var bytes by remember { mutableLongStateOf(0) }
     val app = androidx.compose.ui.platform.LocalContext.current.applicationContext
     LaunchedEffect(Unit) {
@@ -369,8 +427,19 @@ private fun SettingsScreen(model: ScribeViewModel, padding: PaddingValues) {
                 Icon(Icons.Rounded.Storage, null, tint = MaterialTheme.colorScheme.primary)
                 Text("Локальное хранилище", style = MaterialTheme.typography.titleLarge)
                 Text("%.1f МБ в приватных файлах".format(bytes / 1048576.0))
-                Text("Модельный стенд проверен отдельно. Установка моделей для пользовательского пайплайна будет добавлена на следующем этапе.",
+                Text("Проверенный локальный комплект", style = MaterialTheme.typography.titleMedium)
+                Text("ASR: ${if (models.asrReady) "готов" else "не установлен"}\nДиаризация: ${if (models.diarizationReady) "веса установлены" else "не установлены"}\nLLM: ${if (models.llmReady) "веса установлены" else "не установлена"}",
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (models.installing) {
+                    LinearProgressIndicator(Modifier.fillMaxWidth())
+                    Text("Проверяем SHA-256: ${models.file}", style = MaterialTheme.typography.bodySmall)
+                }
+                Button(onClick = { folder.launch(null) }, enabled = !models.installing) {
+                    Icon(Icons.Rounded.FolderOpen, null); Spacer(Modifier.width(8.dp)); Text("Выбрать папку моделей")
+                }
+                Text("Нужен подготовленный комплект PrivateScribe. Файлы копируются в приватное хранилище и проверяются по SHA-256. Интернет не используется.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                models.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             }
         }
         item {
@@ -400,6 +469,8 @@ private fun statusLabel(status: String): String = when (status) {
     "INTERRUPTED" -> "Операция прервана"
     "ERROR" -> "Нужна проверка"
     "COMPLETE" -> "Расшифровка готова"
+    "TRANSCRIBED" -> "Текст готов · говорящие не определены"
+    "CANCELLED" -> "Обработка отменена"
     else -> status
 }
 private fun dateLabel(time: Long): String = SimpleDateFormat("dd MMM · HH:mm", Locale.forLanguageTag("ru")).format(Date(time))

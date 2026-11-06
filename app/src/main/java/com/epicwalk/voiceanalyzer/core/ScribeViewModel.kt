@@ -17,6 +17,46 @@ class ScribeViewModel(application: Application) : AndroidViewModel(application) 
     val conversations = app.repository.dao.observeConversations()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
     val recording = RecordingService.state
+    val processing = ProcessingService.state
+    val modelState = app.models.state
+    fun utterances(id: String) = app.repository.dao.observeUtterances(id)
+    fun installModels(uri: Uri) {
+        if (app.models.state.value.installing) return
+        viewModelScope.launch {
+            try { app.models.installTree(uri) }
+            catch (cancelled: CancellationException) { throw cancelled }
+            catch (failure: Exception) { error.value = failure.message ?: "Не удалось установить модели" }
+        }
+    }
+    fun process(id: String) {
+        if (!app.models.state.value.asrReady) { error.value = "Выберите локальный комплект моделей в настройках"; return }
+        if (processing.value.id != null) { error.value = "Другая запись уже обрабатывается"; return }
+        try {
+            ContextCompat.startForegroundService(app, Intent(app, ProcessingService::class.java)
+                .setAction(ProcessingService.START).putExtra("id", id))
+        } catch (failure: Exception) { error.value = failure.message ?: "Не удалось начать обработку" }
+    }
+    fun cancelProcessing() {
+        app.startService(Intent(app, ProcessingService::class.java).setAction(ProcessingService.CANCEL))
+    }
+    fun playFrom(id: String, path: String, atMs: Long) {
+        closePlayer()
+        try {
+            playbackId = id
+            preparing = true
+            player = MediaPlayer().apply {
+                setDataSource(path)
+                setOnPreparedListener {
+                    preparing = false
+                    it.seekTo(atMs.coerceAtLeast(0), MediaPlayer.SEEK_CLOSEST)
+                    it.start(); playing.value = true
+                }
+                setOnCompletionListener { playing.value = false }
+                setOnErrorListener { _, _, _ -> error.value = "Не удалось воспроизвести аудио"; closePlayer(); true }
+                prepareAsync()
+            }
+        } catch (failure: Exception) { closePlayer(); error.value = failure.message }
+    }
     val busy = MutableStateFlow(false)
     val error = MutableStateFlow<String?>(null)
     val playing = MutableStateFlow(false)

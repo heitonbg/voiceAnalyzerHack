@@ -49,6 +49,10 @@ interface ScribeDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertUtterance(utterance: Utterance)
     @Update suspend fun updateUtterance(utterance: Utterance)
+    @Query("UPDATE conversations SET status = :status, stage = :stage, error = :error WHERE id = :id")
+    suspend fun processingState(id: String, status: String, stage: String, error: String?)
+    @Query("UPDATE conversations SET processedMs = :processedMs, durationMs = :durationMs WHERE id = :id")
+    suspend fun processingProgress(id: String, processedMs: Long, durationMs: Long)
     @Query("SELECT * FROM conversations WHERE status = 'RECORDING'")
     suspend fun interruptedRecordings(): List<Conversation>
     @Query("UPDATE conversations SET status = 'INTERRUPTED', error = 'Операция прервана. Аудио сохранено локально.' WHERE status IN ('IMPORTING','RECORDING','PROCESSING')")

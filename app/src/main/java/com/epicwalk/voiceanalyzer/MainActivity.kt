@@ -19,6 +19,7 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -106,6 +107,9 @@ class MainActivity : ComponentActivity() {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun PrivateScribe(model: ScribeViewModel, record: () -> Unit) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val listState = rememberLazyListState()
+    var followTranscript by rememberSaveable { mutableStateOf(true) }
     val conversations by model.conversations.collectAsStateWithLifecycle()
     val recording by model.recording.collectAsStateWithLifecycle()
     val busy by model.busy.collectAsStateWithLifecycle()
@@ -119,13 +123,30 @@ private fun PrivateScribe(model: ScribeViewModel, record: () -> Unit) {
     var rename by rememberSaveable { mutableStateOf(false) }
     var delete by rememberSaveable { mutableStateOf(false) }
     var titleDraft by rememberSaveable { mutableStateOf("") }
+    var editRow by remember { mutableStateOf<Utterance?>(null) }
+    var editText by rememberSaveable { mutableStateOf("") }
+    var editSpeaker by rememberSaveable { mutableStateOf("") }
+    var nameTarget by rememberSaveable { mutableStateOf<String?>(null) }
+    var nameDraft by rememberSaveable { mutableStateOf("") }
+    var transcriptSearch by rememberSaveable { mutableStateOf("") }
+    val namesVersion by model.speakerNamesVersion.collectAsStateWithLifecycle()
+    val exportFile = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        if (uri != null) selectedId?.let { model.export(it, uri) }
+    }
     val selected = conversations.firstOrNull { it.id == selectedId }
     val transcriptFlow = remember(selectedId) {
         selectedId?.let { model.utterances(it) } ?: flowOf(emptyList<Utterance>())
     }
     val transcript by transcriptFlow.collectAsStateWithLifecycle(initialValue = emptyList())
     val import = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        uri?.let { model.import(it) }
+        uri?.let { model.import(it) { id -> selectedId = id; settings = false; followTranscript = true } }
+    }
+    LaunchedEffect(selectedId, transcript.size) {
+        if (followTranscript && processing.id == selectedId && transcript.isNotEmpty()) {
+            withFrameNanos { }
+            val last = listState.layoutInfo.totalItemsCount - 1
+            if (last >= 0) listState.animateScrollToItem(last)
+        }
     }
     val owner = LocalLifecycleOwner.current
     DisposableEffect(owner, model) {
@@ -174,7 +195,7 @@ private fun PrivateScribe(model: ScribeViewModel, record: () -> Unit) {
             24.dp, padding.calculateBottomPadding() + 24.dp)
         when {
             settings -> SettingsScreen(model, contentPadding)
-            selected != null -> LazyColumn(Modifier.fillMaxSize().consumeWindowInsets(padding),
+            selected != null -> LazyColumn(Modifier.fillMaxSize().consumeWindowInsets(padding), state = listState,
                 contentPadding = contentPadding, verticalArrangement = Arrangement.spacedBy(20.dp)) {
                 item { Text(selected.title, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.SemiBold) }
                 item { Text("${durationLabel(selected.durationMs)}  ·  ${dateLabel(selected.createdMs)}",
@@ -216,12 +237,58 @@ private fun PrivateScribe(model: ScribeViewModel, record: () -> Unit) {
                             Icon(Icons.Rounded.AutoAwesome, null); Spacer(Modifier.width(8.dp))
                             Text(if (selected.status == "READY") "Распознать речь" else "Продолжить обработку")
                         }
-                        if (!models.asrReady) TextButton(onClick = { settings = true; selectedId = null }) { Text("Установить модели") }
+                        if (!models.asrReady) TextButton(onClick = { settings = true; selectedId = null }) { Text("Подготовка моделей") }
                     }
                 }
+                if (selected.status == "COMPLETE") item {
+                    SectionCard {
+                        Text("Готово к работе", style = MaterialTheme.typography.titleLarge)
+                        Button(onClick = {
+                            model.shareReport(selected.id) { uri ->
+                                val send = Intent(Intent.ACTION_SEND).apply {
+                                    type = "application/pdf"
+                                    putExtra(Intent.EXTRA_STREAM, uri)
+                                    clipData = android.content.ClipData.newRawUri("Отчёт PrivateScribe", uri)
+                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                }
+                                context.startActivity(Intent.createChooser(send, "Поделиться отчётом"))
+                            }
+                        }) { Icon(Icons.Rounded.Share, null); Spacer(Modifier.width(8.dp)); Text("Поделиться PDF") }
+                        Button(onClick = { exportFile.launch("PrivateScribe-${selected.id}.json") }) {
+                            Icon(Icons.Rounded.IosShare, null); Spacer(Modifier.width(8.dp)); Text("Экспорт JSON")
+                        }
+                        TextButton(onClick = { model.repeat(selected.id) { selectedId = it } }, enabled = !busy && processing.id == null) {
+                            Text("Обработать новую копию")
+                        }
+                        Text("Слишком много говорящих?", style = MaterialTheme.typography.titleSmall)
+                        Text("Если число участников известно, укажите его для глобального сопоставления голосов.",
+                            style = MaterialTheme.typography.bodySmall)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            listOf(3, 4, 5).forEach { count ->
+                                OutlinedButton(enabled = processing.id == null, onClick = {
+                                    model.setExpectedSpeakers(count); model.process(selected.id)
+                                }) { Text("$count") }
+                            }
+                        }
+                        Text("Участники · нажмите для переименования", style = MaterialTheme.typography.labelLarge)
+                        transcript.map { it.editedSpeakerId ?: it.speakerId }.distinct().forEach { speaker ->
+                            TextButton(onClick = { nameTarget = speaker; nameDraft = model.speakerName(selected.id, speaker) }) {
+                                Text(model.speakerName(selected.id, speaker))
+                            }
+                        }
+                    }
+                }
+                if (selected.status == "COMPLETE") item { AnalysisPanel(model, selected, transcript) }
                 item {
+                    OutlinedTextField(transcriptSearch, { transcriptSearch = it }, Modifier.fillMaxWidth(),
+                        label = { Text("Поиск в расшифровке") }, singleLine = true,
+                        leadingIcon = { Icon(Icons.Rounded.Search, null) })
                     Text("Расшифровка · ${transcript.size}", style = MaterialTheme.typography.titleLarge)
-                    Text("Говорящие пока не определены. Времена — интервалы VAD, а не точные границы слов.",
+                    if (processing.id == selected.id) Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Следить за новыми репликами", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+                        Switch(followTranscript, onCheckedChange = { followTranscript = it })
+                    }
+                    Text(if (selected.status == "COMPLETE") "Глобальные участники. Времена — границы сегментов речи, не слов." else "Предварительные реплики. Говорящие уточняются после глобальной диаризации.",
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 if (transcript.isEmpty()) item {
@@ -230,11 +297,11 @@ private fun PrivateScribe(model: ScribeViewModel, record: () -> Unit) {
                         Text(if (selected.status == "TRANSCRIBED") "Текстовых реплик не получено" else "Здесь появятся реплики",
                             style = MaterialTheme.typography.titleMedium)
                         Text(if (selected.status == "TRANSCRIBED") "Распознавание завершено. Проверьте аудио и наличие разборчивой речи."
-                            else "После установки моделей запустите распознавание. Результаты сохраняются по мере обработки.",
+                            else "Запустите распознавание. Результаты сохраняются по мере обработки.",
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
-                items(transcript, key = { it.id }) { utterance ->
+                items(transcript.filter { (it.editedText ?: it.rawText).contains(transcriptSearch, true) }, key = { it.id }) { utterance ->
                     Card(onClick = { model.playFrom(selected.id, selected.audioPath, utterance.startMs) },
                         shape = RoundedCornerShape(20.dp),
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
@@ -242,8 +309,14 @@ private fun PrivateScribe(model: ScribeViewModel, record: () -> Unit) {
                             Text("${durationLabel(utterance.startMs)} — ${durationLabel(utterance.endMs)}",
                                 style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
                             Text(utterance.editedText ?: utterance.rawText, style = MaterialTheme.typography.bodyLarge)
-                            Text("Говорящий не определён · нажмите, чтобы прослушать",
-                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                                        val speaker = utterance.editedSpeakerId ?: utterance.speakerId
+                            val palette = listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.tertiary, MaterialTheme.colorScheme.secondary)
+                            Text(model.speakerName(selected.id, speaker) +
+                                if (utterance.overlap) " · пересечение речи" else if (utterance.provisional) " · предварительно" else "",
+                                style = MaterialTheme.typography.labelLarge, color = palette[(speaker.hashCode() and Int.MAX_VALUE) % palette.size])
+                            TextButton(onClick = { editRow = utterance; editText = utterance.editedText ?: utterance.rawText; editSpeaker = speaker }) {
+                                Text("Исправить текст / говорящего")
+                            }
                         }
                     }
                 }
@@ -254,6 +327,24 @@ private fun PrivateScribe(model: ScribeViewModel, record: () -> Unit) {
                 { selectedId = it }, contentPadding)
         }
     }
+    val message by model.message.collectAsStateWithLifecycle()
+    if (message != null) AlertDialog(onDismissRequest = { model.message.value = null },
+        title = { Text("Экспорт") }, text = { Text(message.orEmpty()) },
+        confirmButton = { TextButton(onClick = { model.message.value = null }) { Text("Готово") } })
+    if (editRow != null) AlertDialog(onDismissRequest = { editRow = null },
+        title = { Text("Исправление реплики") },
+        text = { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            OutlinedTextField(editText, { editText = it }, label = { Text("Текст") }, maxLines = 8)
+            OutlinedTextField(editSpeaker, { editSpeaker = it }, label = { Text("speaker_1 или speaker_unknown") })
+            Text("Исходный текст ASR сохраняется отдельно.", style = MaterialTheme.typography.bodySmall)
+        } },
+        confirmButton = { TextButton(enabled = editText.isNotBlank() && Regex("speaker_([1-9][0-9]*|unknown)").matches(editSpeaker),
+            onClick = { model.editUtterance(editRow!!.id, editText, editSpeaker); editRow = null }) { Text("Сохранить") } },
+        dismissButton = { TextButton(onClick = { editRow = null }) { Text("Отмена") } })
+    if (nameTarget != null && selected != null) AlertDialog(onDismissRequest = { nameTarget = null },
+        title = { Text("Имя участника") },
+        text = { OutlinedTextField(nameDraft, { nameDraft = it }, label = { Text("Имя") }) },
+        confirmButton = { TextButton(onClick = { model.nameSpeaker(selected.id, nameTarget!!, nameDraft); nameTarget = null }) { Text("Сохранить") } })
     val visibleError = error ?: recording.error
     if (visibleError != null) AlertDialog(
         onDismissRequest = { model.dismissError() },
@@ -286,21 +377,23 @@ private fun HomeContent(
                         Spacer(Modifier.width(6.dp)); Text("ТОЛЬКО НА УСТРОЙСТВЕ", fontSize = 10.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp)
                     }
                 }
-                Text("Сохраните\nважное.", fontSize = 40.sp, lineHeight = 44.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-1).sp)
-                Text("Ваши разговоры. Ваше устройство.\nАудио остаётся у вас.",
+                Text("Из аудио —\nв разговор.", fontSize = 40.sp, lineHeight = 44.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-1).sp)
+                Text("Загрузите встречу или интервью.\nГолоса, реплики и время — на устройстве.",
                     style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
         item {
             if (recording.id != null) RecorderPanel(recording, control)
             else Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Button(onClick = record, modifier = Modifier.fillMaxWidth().heightIn(min = 60.dp),
-                    shape = RoundedCornerShape(18.dp)) {
-                    Icon(Icons.Rounded.Mic, null); Spacer(Modifier.width(10.dp)); Text("Начать запись", fontSize = 16.sp)
+                Button(onClick = import, enabled = !busy,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 64.dp), shape = RoundedCornerShape(18.dp)) {
+                    Icon(Icons.Rounded.UploadFile, null); Spacer(Modifier.width(10.dp)); Text("Загрузить аудио", fontSize = 16.sp)
                 }
-                FilledTonalButton(onClick = import, enabled = !busy,
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 60.dp), shape = RoundedCornerShape(18.dp)) {
-                    Icon(Icons.Rounded.UploadFile, null); Spacer(Modifier.width(10.dp)); Text("Импортировать аудио", fontSize = 16.sp)
+                Text("WAV, MP3, M4A · обработка блоками", style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                FilledTonalButton(onClick = record, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
+                    shape = RoundedCornerShape(18.dp)) {
+                    Icon(Icons.Rounded.Mic, null); Spacer(Modifier.width(10.dp)); Text("Записать разговор", fontSize = 16.sp)
                 }
             }
         }
@@ -397,9 +490,7 @@ private fun SettingsScreen(model: ScribeViewModel, padding: PaddingValues) {
     val theme by model.theme.collectAsStateWithLifecycle()
     val dynamic by model.dynamicColor.collectAsStateWithLifecycle()
     val models by model.modelState.collectAsStateWithLifecycle()
-    val folder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
-        uri?.let(model::installModels)
-    }
+    val expected by model.expectedSpeakers.collectAsStateWithLifecycle()
     var bytes by remember { mutableLongStateOf(0) }
     val app = androidx.compose.ui.platform.LocalContext.current.applicationContext
     LaunchedEffect(Unit) {
@@ -434,10 +525,10 @@ private fun SettingsScreen(model: ScribeViewModel, padding: PaddingValues) {
                     LinearProgressIndicator(Modifier.fillMaxWidth())
                     Text("Проверяем SHA-256: ${models.file}", style = MaterialTheme.typography.bodySmall)
                 }
-                Button(onClick = { folder.launch(null) }, enabled = !models.installing) {
-                    Icon(Icons.Rounded.FolderOpen, null); Spacer(Modifier.width(8.dp)); Text("Выбрать папку моделей")
+                if (models.error != null) Button(onClick = { model.prepareModels() }, enabled = !models.installing) {
+                    Text("Повторить подготовку")
                 }
-                Text("Нужен подготовленный комплект PrivateScribe. Файлы копируются в приватное хранилище и проверяются по SHA-256. Интернет не используется.",
+                Text("Все модели встроены в APK. При первом запуске автоматически копируются и проверяются по SHA-256. Интернет не требуется.",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 models.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             }
@@ -448,7 +539,15 @@ private fun SettingsScreen(model: ScribeViewModel, padding: PaddingValues) {
                 Text("Приватность", style = MaterialTheme.typography.titleLarge)
                 Text("Приложение не запрашивает доступ к интернету. Записи хранятся в приватном каталоге. Резервное копирование отключено.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text("PrivateScribe · этап 2", style = MaterialTheme.typography.labelMedium)
+                Text("PrivateScribe · полностью локальный режим", style = MaterialTheme.typography.labelMedium)
+                Text("Ожидаемое число участников: ${if (expected == 0) "автоматически" else expected}")
+                Row {
+                    TextButton(onClick = { model.setExpectedSpeakers((expected - 1).coerceAtLeast(0)) }) { Text("−") }
+                    TextButton(onClick = { model.setExpectedSpeakers((expected + 1).coerceAtMost(32)) }) { Text("+") }
+                    TextButton(onClick = { model.setExpectedSpeakers(0) }) { Text("Авто") }
+                }
+                Text("Параметр применяется при следующей обработке. Пересекающаяся речь может остаться без определённого участника.",
+                    style = MaterialTheme.typography.bodySmall)
             }
         }
     }

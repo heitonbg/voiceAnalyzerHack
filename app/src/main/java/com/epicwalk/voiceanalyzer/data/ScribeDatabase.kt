@@ -51,6 +51,8 @@ interface ScribeDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertUtterance(utterance: Utterance)
     @Update suspend fun updateUtterance(utterance: Utterance)
+    @Query("SELECT * FROM utterances WHERE id = :id")
+    suspend fun utterance(id: String): Utterance?
     @Query("UPDATE utterances SET sourcePass = :archivePass WHERE conversationId = :id AND sourcePass = 'diarized'")
     suspend fun archiveFinal(id: String, archivePass: String)
     @Query("UPDATE conversations SET status = :status, stage = :stage, error = :error WHERE id = :id")

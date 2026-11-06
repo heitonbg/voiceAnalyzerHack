@@ -1,106 +1,120 @@
 # PrivateScribe
 
-Локальное Android-приложение для записи, транскрибации и анализа разговоров.
+Android 10+, Kotlin / Compose / Material 3. Полностью локальная запись, русская транскрибация,
+глобальная диаризация, JSON и выбор важных цитат локальной Qwen3.
 
-**Текущий этап: два источника аудио и история работают; ML проверен отдельно на Android,
-но ещё не подключён к пользовательскому пайплайну. Это пока не готовое решение хакатона.**
+## APK со всеми моделями
 
-## Работает в приложении
+Готовый APK: **app/build/outputs/apk/debug/app-debug.apk**.
+В нём уже находятся GigaAM v3 RNNT INT8, Silero VAD, Pyannote segmentation 3.0,
+TitaNet Small и Qwen3-0.6B Q8_0. Никаких папок моделей и скачивания на телефоне.
+Первый запуск копирует около 916 MB весов в приватное хранилище и проверяет SHA-256.
+Понадобится около 2.5 GB свободного места с запасом на установку и аудио.
+Размер проверенной debug-сборки до добавления текстов лицензий: 968090866 bytes (923.24 MiB).
+APK содержит arm64-v8a и x86_64. INTERNET в manifest отсутствует; backup отключён.
 
-- Material 3 / Compose, светлая, тёмная и системная темы, Dynamic Color.
-- Диктофон AudioRecord 16 kHz mono: start/pause/resume/stop, длительность, реальный RMS.
-- Foreground microphone service; запись не ожидает ML.
-- SAF выбор аудио без широких storage permissions; приватная копия и Android-метаданные.
-- Room-история, поиск по названию, переименование, удаление, локальное воспроизведение.
-- Пометка прерванных операций и восстановление WAV-header после process death.
-- В manifest APK нет INTERNET, резервное копирование данных отключено.
+Установка: Android Studio Run либо adb install -r APK. Дождитесь подготовки моделей в настройках.
+Выберите «Загрузить аудио»: запись открывается и обработка запускается автоматически.
+Для диктофона откройте сохранённую запись и нажмите «Распознать речь».
+После COMPLETE доступны JSON, исправления текста/говорящих, имена участников и ИИ-анализ.
+Смена числа участников в настройках применяется к следующему проходу; повтор создаёт новую копию.
 
-## Подтверждённый настоящий ML
+## Реализовано
 
-На Android Emulator API 36, native x86_64, запущенном с 4096 MB RAM:
+- AudioRecord mono 16 kHz, pause/resume/stop, реальный RMS, foreground service.
+  Аудио пишется независимо от ML; распознавание запускается после записи.
+- SAF импорт без широких storage permissions, приватная копия оригинала.
+- Блочный MediaExtractor/MediaCodec decoder, mono / sinc-resampling 16 kHz на диск.
+- Основной пайплайн: параллельное декодирование на диск → Pyannote/TitaNet по окнам до 32 s
+  → глобальные voice embeddings → GigaAM один раз на фразу. Реплики поступают в Room сразу.
+  Говорящие предварительные до завершения глобальной кластеризации. Silero/ASR-only — резервный путь.
+- Незавершённые фразы переносятся через окна. Длинная речь делится по тихим участкам,
+  с 150 ms контекста при ASR. Это не выравнивание слов; accuracy timestamps не измерена.
+- Одиночным коротким голосовым выбросам недостаточно свидетельств для нового speaker_id.
+  В карточке результата доступны 3 / 4 / 5 участников для уточнения известного числа людей.
+- Прогрессивные реплики, фактическое положение в аудио, отмена, checkpoints,
+  продолжение после прерывания. Сомнительные голоса и overlaps — speaker_unknown.
+- Room v2 и migration 1→2, история, поиск, воспроизведение с временной метки,
+  редактирование с сохранением raw ASR, переименование, удаление, повтор.
+- Строгий JSON: только transcript и speaker_id/start_ms/end_ms/text.
+- JNI llama.cpp CPU, Qwen3: анализ по категориям и Q&A с проверяемыми ID реплик.
+  Это **экстрактивный** анализ: модель выбирает цитаты, UI показывает оригинальный текст
+  с переходом к аудио. Категории могут быть ошибочны; вымышленные пересказы не выдаются за факты.
+  Chunking и иерархический отбор ограничивают контекст 2048 токенами.
+- ASR и диаризация остаются загруженными между окнами; их вычисления последовательны.
+  Декодирование выполняется параллельно с ограниченными PCM-буферами и файлом на диске.
+  LLM использует общую блокировку и не загружается вместе с ASR/диаризацией; native release в finally.
+  Анализ и транскрибация используют foreground services, запись — отдельный service.
+- Светлая/тёмная/системная темы, Dynamic Color, системные insets, масштабируемый текст,
+  ленивые списки, состояния подготовки/ошибки/отмены.
 
-- Silero VAD на реальном WAV.
-- GigaAM v3 RNNT INT8: русское аудио 11.29 s, две реплики.
-- Pyannote segmentation 3.0 + TitaNet Small: реальные speaker segments.
-- Калибровка automatic clustering и режим заданного числа участников.
-- Qwen3 0.6B Q8_0 / llama.cpp: отдельный Android CPU executable над реальным ASR-текстом.
-  **Это ещё не JNI-интеграция в приложение.**
+## Фактическая проверка
 
-Сохранённые результаты: [JSON реального inference](docs/results/real-transcript.json),
-[отчёт итерации 1](docs/ITERATION_1.md), [отчёт итерации 2](docs/ITERATION_2.md).
-ASR inference 588 ms без загрузки модели на этом коротком входе.
-Это не оценка скорости Snapdragon и не WER.
-Порог кластеризации 0.5 дал 8 голосов вместо 4; 0.8–0.9 дал 4 на одном китайском примере.
-Это не DER и не гарантия корректного automatic mode на русских встречах.
+Android Emulator API 36 / native x86_64 / 4096 MB:
 
-## Сборка и установка
+- 5 JVM tests: WAV recovery, sinc-resampling/chunk timing/alias rejection и исходный smoke.
+- Реальные Android tests записи/паузы и импорта; VAD, русский RNNT, Pyannote/TitaNet.
+- Четыре голоса на публичном китайском fixture: глобальное сопоставление между окнами
+  с заданным числом 4, восстановление checkpoint.
+- Русский end-to-end из **моделей в APK**, финальная диаризация, строгие JSON-ключи,
+  сохранение raw ASR при правке, настоящий JNI Qwen анализ и вопрос про дерево.
+  Успешный прогон BundledOfflineTest: 15.879 s; анализ 6176 ms, вопрос 4691 ms.
+- Нагрузочный LongAudioTest: 80 повторений настоящего публичного русского WAV,
+  903200 ms аудио → 192010 ms обработки, RTF 0.21259, 81 финальная реплика.
+  Это **stress**, не независимый 15-минутный разговор и не WER/DER.
+- Повторный проход реального 21:53 файла, уже находившегося в тестовом эмуляторе:
+  1,313,024 ms аудио, 74,911 ms повторная обработка, 268 реплик,
+  3 автоматически назначенных голоса; первая новая реплика сохранена через 2,091 ms.
+  В предыдущем сохранённом результате было 9 кластеров. 40 реплик короче 500 ms
+  остались индикатором для проверки фрагментации, а не скрывались эвристикой.
+  Это проверка на одном файле без эталонной разметки: **не DER и не доказательство
+  правильности всех границ говорящих**.
 
-Android Studio, JBR 21+, SDK 36. AGP 9.0.1 использует встроенную поддержку Kotlin.
-KSP 2.3.13 генерирует Room-код. minSdk 29 (Android 10).
-В терминале нужен действительный JAVA_HOME. На проверяемой машине:
+[Результаты](docs/results/bundled-diagnostic.json),
+[длинный stress](docs/results/long-audio-result.json),
+[регрессия встречи](docs/results/meeting-regression.json),
+[пример реального JSON](docs/results/real-transcript.json).
+Новые результаты фиксируются только по логам; предыдущие исследования в ITERATION_1…4.
+
+## Сборка исходников
+
+JBR 21+, SDK 36, NDK 27.1.12297006, CMake 3.22.1.
+AGP 9.0.1 / встроенный Kotlin; Compose plugin 2.0.21; KSP 2.3.13; Room 2.8.5.
 
 ~~~powershell
 $env:JAVA_HOME = 'C:\Program Files\Android\Android Studio1\jbr'
 .\gradlew.bat :app:assembleDebug :app:testDebugUnitTest --console=plain
 ~~~
 
-APK: app/build/outputs/apk/debug/app-debug.apk.
-Установить через Android Studio Run или adb install -r.
-Микрофон запрашивается только при начале записи; импорт работает без его разрешения.
+Веса, AAR и third-party checkout намеренно не в git:
+- app/libs/sherpa-onnx-2.0.1.aar из официального релиза sherpa.
+- research/models: восемь файлов из ModelStore.specs, точные SHA-256 в исходнике.
+- research/llama.cpp: upstream commit cd959bae99ff4bed22bef2604f45241c09bbb8c8 (v0.9.0).
+  Получение: git clone https://github.com/ggml-org/llama.cpp research/llama.cpp,
+  затем git -C research/llama.cpp checkout указанного commit.
+- Тестовые example.wav и four-speakers.wav дополнительно для androidTest.
 
-Требуется app/libs/sherpa-onnx-2.0.1.aar из
-[официального релиза](https://github.com/k2-fsa/sherpa-onnx/releases/tag/v2.0.1).
-SHA256: a8d09d1d32f3eb8520482c6d3d43fae674681c5b050385967c70a3c2c9bf0ee7.
-Он загружен в рабочем каталоге отдельно и исключён из git вместе с весами.
-Обе нужные ABI AAR проверены; APK ограничен arm64-v8a и x86_64.
+Gradle Variant API всегда включает полный pack в основной APK, сборка падает при отсутствии файлов.
+Публичные WAV дополнительно включаются только в androidTest APK.
+[Источники и лицензии](docs/MODEL_COMPATIBILITY.md), [тестовые команды](docs/testing.md).
 
-## Проверки
+## Ограничения
 
-~~~powershell
-.\gradlew.bat :app:testDebugUnitTest --console=plain
-.\gradlew.bat :app:connectedDebugAndroidTest '-Pandroid.testInstrumentationRunnerArguments.class=com.epicwalk.voiceanalyzer.AudioSourcesTest' --console=plain
-.\gradlew.bat :app:connectedDebugAndroidTest '-Pandroid.testInstrumentationRunnerArguments.class=com.epicwalk.voiceanalyzer.ModelSmokeTest' --console=plain
-~~~
+- Физический Redmi Note 9 Pro / Android 10 и ARM-inference не проверены: устройство не подключено.
+  ARM-библиотека собрана, это не устройствоный тест.
+- WER, DER, ошибка временных меток по независимой разметке и peak RAM полного приложения
+  не измерены. Отсутствие OOM на stress не доказывает отсутствие утечек.
+- Нет независимой русской встречи на 2/3+ участников; automatic clustering требует калибровки.
+- Overlap обнаруживается, но отдельные одновременные тексты не восстанавливаются.
+  Времена — оценённые интервалы речи, не точные границы слов.
+- Живой ASR во время записи не включён. После остановки запись доступна для обработки.
+- WAV проверен; MP3/M4A кодек-путь реализован, отдельная матрица форматов ещё не пройдена.
+- Анализ выбирает исходные цитаты; отдельный свободный абстрактивный отчёт и автоматическая
+  структуризация «ответственный/дата» не объявляются реализованными.
+- Отмена ожидает завершения текущего ограниченного native-вызова. Сегменты/checkpoints
+  возобновляются, LLM-анализ после process death нужно запустить заново.
+- Лицензионная карточка TitaNet указывает NeMo Toolkit license; точный NOTICE экспорта
+  перед публичной дистрибуцией нужно дополнительно сверить.
 
-Последние выполненные проверки: 3 JVM tests passed; 2 AudioSourcesTest passed;
-4 ModelSmokeTest passed. Последний класс проверяет запуск моделей и один калибровочный пример,
-а не общую точность. Артефакты ML нужны только для model/audio instrumentation.
-Тесты микрофона используют настоящий AudioRecord на эмуляторе.
-
-Для model/audio tests положить в research/models:
-
-- encoder.int8.onnx, decoder.onnx, joiner.onnx, tokens.txt и example.wav —
-  [GigaAM v3 RNNT revision 0424d62](https://huggingface.co/csukuangfj/sherpa-onnx-nemo-transducer-giga-am-v3-russian-2025-12-16/tree/0424d62).
-- silero_vad.onnx — asr-models release sherpa.
-- titanet.onnx — nemo_en_titanet_small.onnx из speaker-recongition-models.
-- four-speakers.wav — 0-four-speakers-zh.wav из speaker-segmentation-models.
-- sherpa-onnx-pyannote-segmentation-3-0/model.onnx — распакованный архив того же релиза.
-
-Variant API подключает отфильтрованные generated assets только в androidTest APK.
-GGUF, архивы и upstream-скрипты в него не копируются.
-Тест сам переносит файлы в приватное хранилище ограниченным буфером.
-Простой adb push в external storage оказался неработоспособным для тестового процесса.
-Gradle runner удаляет установленные пакеты/результаты после прогона; для сохранения JSON
-использован прямой запуск instrumentation с последующим adb pull.
-
-HTML: app/build/reports/androidTests/connected/debug/index.html.
-[Стратегия и ограничения тестов](docs/testing.md), [протокол приёмки](docs/TEST_PROTOCOL.md).
-
-## Документация
-
-- [Архитектура и разделение ответственности](docs/ARCHITECTURE.md).
-- [Совместимость, источники и лицензии моделей](docs/MODEL_COMPATIBILITY.md).
-- [Фактические отчёты и JSON](docs/results/README.md).
-- [Сценарий будущей видеодемонстрации](docs/TEST_PROTOCOL.md).
-
-## Ещё не реализовано / не проверено
-
-Нет пользовательской транскрибации, блочного MediaCodec decoder/resampler, глобальных
-embeddings между блоками, JSON-экспорта из UI, model manager, JNI LLM и анализа/Q&A из UI.
-Пользовательский экран честно обозначает отсутствие расшифровки.
-
-Не проведены WER, DER, ошибка timestamps относительно эталона, 15-минутный разговор,
-полная приёмка в авиарежиме, проверка утечек и физического Redmi Note 9 Pro.
-PSS в речевых smoke JSON — снимок, не peak RAM.
-LLM maxrss измерен отдельно в native executable, не для полного приложения.
-Заглушек inference и заранее подготовленных результатов в пользовательском приложении нет.
+[Архитектура](docs/ARCHITECTURE.md), [протокол и демонстрация](docs/TEST_PROTOCOL.md).
+Заглушек inference, подготовленных пользовательских результатов и фальшивого прогресса нет.

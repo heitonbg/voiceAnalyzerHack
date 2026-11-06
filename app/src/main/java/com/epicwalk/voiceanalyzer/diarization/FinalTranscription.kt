@@ -20,9 +20,9 @@ class FinalTranscription(private val app: ScribeApplication) {
         dao.processingState(id, "PROCESSING", "Глобальная диаризация", null)
         val checkpoint = File(app.repository.audioDirectory, "$id.diarization.json")
         val turns = BoundedDiarization(app.models).use { engine ->
-            engine.analyze(pcm, checkpoint, fingerprint, expectedSpeakers, ::cancelled) {
+            engine.analyze(pcm, checkpoint, fingerprint, expectedSpeakers, ::cancelled, progress = {
                 progress(ProcessingState(id, "Сегментация и эмбеддинги голосов", it, totalMs))
-            }
+            })
         }
         cancelled()
         check(turns.isNotEmpty() || dao.utterances(id).none { it.sourcePass == "asr" }) {

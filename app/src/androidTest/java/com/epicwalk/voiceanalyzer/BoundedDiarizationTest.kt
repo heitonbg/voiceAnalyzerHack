@@ -40,6 +40,10 @@ class BoundedDiarizationTest {
                     .put("speaker_at_16s", at(16000)).put("speaker_at_49s", at(49000))
                     .put("speaker_at_28s", at(28000)).put("speaker_at_35s", at(35000))
                     .put("automatic_speakers", GlobalSpeakers.assign(turns).map { it.speakerId }.filter { it != "speaker_unknown" }.distinct().size)
+                    .put("thresholds", JSONObject().also { sweep -> listOf(0.35, 0.4, 0.45, 0.5, 0.55, 0.6).forEach { threshold ->
+                        sweep.put(threshold.toString(), GlobalSpeakers.assign(turns, similarity = threshold)
+                            .map { it.speakerId }.filter { it != "speaker_unknown" }.distinct().size)
+                    } })
                     .put("note", "Public Chinese fixture; global consistency checks, not DER")
                 File(app.getExternalFilesDir(null), "bounded-diarization.json").writeText(report.toString(2))
                 assertEquals(4, speakers.size)

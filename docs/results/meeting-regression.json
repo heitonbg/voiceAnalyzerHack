@@ -1,0 +1,9 @@
+{
+  "duration_ms": 1313024,
+  "wall_ms": 74911,
+  "first_phrase_ms": 2091,
+  "speakers": 3,
+  "utterances": 268,
+  "sub_500ms_utterances": 40,
+  "note": "No reference speaker labels; speaker count is not DER. No private speech exported."
+}

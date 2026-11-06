@@ -1,0 +1,20 @@
+{
+  "transcript": {
+    "transcript": [
+      {
+        "speaker_id": "speaker_1",
+        "start_ms": 30,
+        "end_ms": 8485,
+        "text": "ничьих не требуя похвал счастлив уж я надеждой сладкой что дева с трепетом любви посмотрит может быть украдкой на песни грешные мои"
+      },
+      {
+        "speaker_id": "speaker_1",
+        "start_ms": 9244,
+        "end_ms": 10965,
+        "text": "у лукоморья дуб зеленый"
+      }
+    ]
+  },
+  "report": "AnalysisResult(facts=[Evidence(kind=summary, ids=[ff235e87-4f3d-41a5-90db-9a6336b3bd9c:final:a6daaa5feb93bb0e:495:135765])], question=, elapsedMs=6176)",
+  "answer": "AnalysisResult(facts=[Evidence(kind=answer, ids=[ff235e87-4f3d-41a5-90db-9a6336b3bd9c:final:a6daaa5feb93bb0e:147915:175455])], question=Какое дерево упомянуто у лукоморья?, elapsedMs=4691)"
+}

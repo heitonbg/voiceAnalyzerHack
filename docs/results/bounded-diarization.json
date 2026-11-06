@@ -1,0 +1,17 @@
+{
+  "manual_speakers": 4,
+  "speaker_at_16s": "speaker_3",
+  "speaker_at_49s": "speaker_3",
+  "speaker_at_28s": "speaker_4",
+  "speaker_at_35s": "speaker_4",
+  "automatic_speakers": 4,
+  "thresholds": {
+    "0.35": 4,
+    "0.4": 4,
+    "0.45": 4,
+    "0.5": 4,
+    "0.55": 4,
+    "0.6": 4
+  },
+  "note": "Public Chinese fixture; global consistency checks, not DER"
+}

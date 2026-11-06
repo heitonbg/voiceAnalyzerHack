@@ -1,0 +1,9 @@
+{
+  "fixture": "80 repetitions of real public GigaAM example.wav; stress only",
+  "duration_ms": 903200,
+  "elapsed_ms": 192010,
+  "rtf": 0.21258857395925598,
+  "utterances": 81,
+  "speakers": "[speaker_1]",
+  "abi": "x86_64"
+}

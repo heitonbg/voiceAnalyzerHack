@@ -1,0 +1,30 @@
+[
+  {
+    "duration_ms": 1313024,
+    "stored_speakers": 9,
+    "revised_auto_speakers": 7,
+    "segments": 284,
+    "thresholds": {
+      "0.35": 1,
+      "0.4": 2,
+      "0.45": 2,
+      "0.5": 3,
+      "0.55": 7,
+      "0.6": 16
+    }
+  },
+  {
+    "duration_ms": 903200,
+    "stored_speakers": 1,
+    "revised_auto_speakers": 1,
+    "segments": 109,
+    "thresholds": {
+      "0.35": 1,
+      "0.4": 1,
+      "0.45": 1,
+      "0.5": 1,
+      "0.55": 1,
+      "0.6": 1
+    }
+  }
+]

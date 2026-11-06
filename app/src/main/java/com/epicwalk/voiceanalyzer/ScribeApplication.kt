@@ -24,8 +24,15 @@ class ScribeApplication : Application() {
             database.dao().markInterrupted()
         }
     }
+    val modelPreparation by lazy {
+        applicationScope.async {
+            try { models.install { path -> assets.open(path) }; true }
+            catch (_: Exception) { false }
+        }
+    }
     override fun onCreate() {
         super.onCreate()
         startup
+        modelPreparation
     }
 }

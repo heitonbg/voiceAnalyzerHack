@@ -12,8 +12,10 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
 interface DiarizationEngine : AutoCloseable {
-    fun analyze(pcm: File, checkpoint: File, fingerprint: String, expectedSpeakers: Int,
-        checkCancelled: () -> Unit, progress: (Long) -> Unit): List<VoiceTurn>
+    suspend fun analyze(pcm: File, checkpoint: File, fingerprint: String, expectedSpeakers: Int,
+        checkCancelled: () -> Unit, progress: (Long) -> Unit,
+        awaitSamples: suspend (Long) -> Long = { pcm.length() / 2 },
+        onWindow: suspend (List<VoiceTurn>, Long) -> Unit = { _, _ -> }): List<VoiceTurn>
 }
 
 class BoundedDiarization(private val models: ModelStore) : DiarizationEngine {
@@ -27,9 +29,11 @@ class BoundedDiarization(private val models: ModelStore) : DiarizationEngine {
     ))
     private var extractor: SpeakerEmbeddingExtractor? = null
 
-    override fun analyze(pcm: File, checkpoint: File, fingerprint: String, expectedSpeakers: Int,
-        checkCancelled: () -> Unit, progress: (Long) -> Unit): List<VoiceTurn> {
-        val sampleCount = pcm.length() / 2
+    override suspend fun analyze(pcm: File, checkpoint: File, fingerprint: String, expectedSpeakers: Int,
+        checkCancelled: () -> Unit, progress: (Long) -> Unit,
+        awaitSamples: suspend (Long) -> Long,
+        onWindow: suspend (List<VoiceTurn>, Long) -> Unit): List<VoiceTurn> {
+        var sampleCount = awaitSamples(31L * 16000)
         val config = "$fingerprint:pyannote-titanet-block30-margin1-v1"
         val turns = ArrayList<VoiceTurn>()
         var processed = 0L
@@ -56,12 +60,15 @@ class BoundedDiarization(private val models: ModelStore) : DiarizationEngine {
                 }
             }.onFailure { turns.clear(); processed = 0 }
         }
+        if (processed > 0) onWindow(GlobalSpeakers.assign(turns, expectedSpeakers), processed)
         if (processed < sampleCount && extractor == null) {
             extractor = SpeakerEmbeddingExtractor(config = SpeakerEmbeddingExtractorConfig(
                 model = models.file("titanet.onnx").absolutePath, numThreads = 1, provider = "cpu"))
         }
         RandomAccessFile(pcm, "r").use { input ->
-            while (processed < sampleCount) {
+            while (true) {
+                sampleCount = awaitSamples(processed + 31L * 16000)
+                if (processed >= sampleCount) break
                 checkCancelled()
                 val end = minOf(sampleCount, processed + 30 * 16000)
                 val loadStart = (processed - 16000).coerceAtLeast(0)
@@ -133,6 +140,7 @@ class BoundedDiarization(private val models: ModelStore) : DiarizationEngine {
                     output.write(root.toString().toByteArray(Charsets.UTF_8))
                     atomic.finishWrite(output)
                 } catch (failure: Throwable) { atomic.failWrite(output); throw failure }
+                onWindow(GlobalSpeakers.assign(turns, expectedSpeakers), processed)
                 progress(processed * 1000 / 16000)
             }
         }

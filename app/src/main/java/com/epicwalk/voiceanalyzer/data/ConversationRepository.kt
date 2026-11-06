@@ -57,10 +57,39 @@ class ConversationRepository(private val context: Context, val dao: ScribeDao) {
         }
     }
 
+    suspend fun duplicate(id: String): String = withContext(Dispatchers.IO) {
+        val original = dao.conversation(id) ?: error("Разговор не найден")
+        check(original.status !in listOf("RECORDING", "IMPORTING", "PROCESSING"))
+        val next = UUID.randomUUID().toString()
+        val target = File(audioDirectory, "$next.audio")
+        try {
+            File(original.audioPath).inputStream().use { input ->
+                target.outputStream().use { output ->
+                    val buffer = ByteArray(65536)
+                    while (true) {
+                        currentCoroutineContext().ensureActive()
+                        val count = input.read(buffer)
+                        if (count < 0) break
+                        output.write(buffer, 0, count)
+                    }
+                }
+            }
+            dao.insert(Conversation(next, original.title + " · повтор",
+                audioPath = target.absolutePath, durationMs = original.durationMs, status = "READY"))
+            next
+        } catch (failure: Exception) { target.delete(); throw failure }
+    }
+
     suspend fun remove(id: String) = withContext(Dispatchers.IO) {
         val conversation = dao.conversation(id) ?: return@withContext
         if (conversation.status in listOf("RECORDING", "PROCESSING", "IMPORTING")) return@withContext
         audioDirectory.listFiles()?.filter { it.name.startsWith("$id.") }?.forEach { it.deleteRecursively() }
+        File(context.filesDir, "$id.analysis.json").delete()
+        File(context.cacheDir, "reports/$id.pdf").delete()
+        val names = context.getSharedPreferences("speaker-names", 0)
+        val edit = names.edit()
+        names.all.keys.filter { it.startsWith("$id/") }.forEach { edit.remove(it) }
+        edit.apply()
         dao.delete(id)
     }
 }

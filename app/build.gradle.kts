@@ -23,6 +23,11 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    ndkVersion = "27.1.12297006"
+    externalNativeBuild {
+        cmake { path = file("src/main/cpp/CMakeLists.txt"); version = "3.22.1" }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
@@ -61,7 +66,30 @@ abstract class PrepareModelSmokeAssets : DefaultTask() {
     }
 }
 
-// Generated assets belong only to the instrumentation APK.
+// Every application APK contains the complete pinned offline model pack.
+androidComponents {
+    onVariants { variant ->
+        val bundledModels = tasks.register<PrepareModelSmokeAssets>(
+            "bundle${variant.name.replaceFirstChar { it.uppercaseChar() }}OfflineModels"
+        ) {
+            modelFiles.from(rootProject.fileTree("research/models") {
+                include("encoder.int8.onnx", "decoder.onnx", "joiner.onnx", "tokens.txt",
+                    "silero_vad.onnx", "titanet.onnx", "Qwen3-0.6B-Q8_0.gguf",
+                    "sherpa-onnx-pyannote-segmentation-3-0/model.onnx")
+            })
+            outputDirectory.set(layout.buildDirectory.dir("generated/offlineModels/${variant.name}"))
+            doFirst {
+                val required = listOf("encoder.int8.onnx", "decoder.onnx", "joiner.onnx", "tokens.txt",
+                    "silero_vad.onnx", "titanet.onnx", "Qwen3-0.6B-Q8_0.gguf",
+                    "sherpa-onnx-pyannote-segmentation-3-0/model.onnx")
+                required.forEach { check(rootProject.file("research/models/$it").isFile) { "Missing bundled model: $it" } }
+            }
+        }
+        variant.sources.assets?.addGeneratedSourceDirectory(bundledModels, PrepareModelSmokeAssets::outputDirectory)
+    }
+}
+
+// Additional public fixtures belong only to the instrumentation APK.
 androidComponents {
     onVariants(selector().withBuildType("debug")) { variant ->
         val prepareAssets = tasks.register<PrepareModelSmokeAssets>(

@@ -1,47 +1,75 @@
-# Тестовая инфраструктура
+# Проверки и воспроизведение
 
-## Аудит исходного проекта
+Все ML integration tests ниже выполняют настоящие модели на Android emulator/device.
+Не являются тестами точности без эталонной разметки: количество кластеров не равно DER,
+распознаваемость кириллицы не равна WER, а одинаковая речь, повторённая много раз,
+не заменяет независимую длинную встречу.
 
-- Один app, Compose + Material 3, Activity, без DI, ViewModel, repository или базы.
-- JUnit 4.13.2 для JVM; исходный ExampleUnitTest проверяет только арифметику.
-- androidx.test.ext:junit 1.3.0 и AndroidJUnitRunner для instrumentation.
-- Espresso 3.7.0 и Compose ui-test-junit4 подключены шаблоном.
-- Нет MockK/Mockito, Robolectric, screenshot framework, JaCoCo и end-to-end suite.
-- Нет продуктовой бизнес-логики для покрытия unit tests.
-- На итерации 1 приоритет пользователя — настоящий Android CPU inference без заглушек.
-  Новые DI/UI/screenshot зависимости откладываются до продуктовой архитектуры второй итерации;
-  модели в smoke tests не подменяются fake/mock.
+## Требования
 
-## ModelSmokeTest
-
-Три Android-теста: Silero на настоящем WAV; GigaAM RNNT + Pyannote/TitaNet
-и JSON из inference; автоматическое различение голосов на настоящем многоголосом WAV.
-Первый прогон через Gradle выявил проблему очистки externally pushed fixtures.
-Прямой runner также не смог читать перенесённые через shell файлы.
-Текущая доставка: research/models упаковывается **только в androidTest APK**,
-тест копирует нужные файлы из test AssetManager в приватный filesDir небольшим буфером.
-Рабочий APK не содержит эти assets. Это исследовательские данные, не model manager продукта.
-
-Воспроизводимый запуск после загрузки артефактов из README:
+Windows PowerShell, Android Studio JBR 21+, Android SDK 36, NDK 27.1.12297006,
+CMake 3.22.1; Android emulator API 36 x86_64, настроенный на 4096 MB RAM.
+Рабочая станция используется только для сборки и доступных публичных fixtures/весов.
+Аудио и инференс для device tests остаются на Android.
 
 ~~~powershell
-.\gradlew.bat :app:connectedDebugAndroidTest '-Pandroid.testInstrumentationRunnerArguments.class=com.epicwalk.voiceanalyzer.ModelSmokeTest' --console=plain
+$env:JAVA_HOME = 'C:\Program Files\Android\Android Studio1\jbr'
+.\gradlew.bat :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest --console=plain
 ~~~
 
-HTML-отчёт: app/build/reports/androidTests/connected/debug/index.html.
-Машинные результаты: app/build/outputs/androidTest-results/connected.
-JSON inference/метрики: externalFilesDir приложения (если runner не удалил пакет после прогона).
-Сохранить результаты до удаления приложения; никогда не выдавать прежние файлы за новый прогон.
+## Android instrumented tests
 
-Fixture reader ограничен WAV PCM16 mono 16 kHz и 60 секундами.
-Это не implementation импорта и не тест длинного streaming pipeline.
-PSS snapshot не является peak; детектирование кириллицы не является WER;
-число кластеров не является DER. См. TEST_PROTOCOL.md.
+Установить app и androidTest APK из app/build/outputs/apk, затем запустить выбранные
+классы через Android Studio или adb instrumentation runner. Примеры:
 
-## Следующие уровни
+~~~powershell
+adb shell am instrument -w -r -e class com.epicwalk.voiceanalyzer.BundledOfflineTest com.epicwalk.voiceanalyzer.test/androidx.test.runner.AndroidJUnitRunner
+adb shell am instrument -w -r -e class com.epicwalk.voiceanalyzer.BoundedDiarizationTest,com.epicwalk.voiceanalyzer.GrowingAudioTest com.epicwalk.voiceanalyzer.test/androidx.test.runner.AndroidJUnitRunner
+~~~
 
-В продуктовых итерациях: unit tests времени/resampler/checkpoints/JSON/evidence validation;
-Room in-memory instrumentation; реальные ML integration tests отдельно от быстрых UI tests;
-Compose semantics и восстановление состояния; screenshots тем и размеров;
-минимальный E2E import → process → export в авиарежиме.
-Не создавать бессодержательные tests, копирующие implementation, ради процента покрытия.
+Основные реальные Android tests:
+- `BundledOfflineTest`: автономная установка моделей из app APK, русский RNNT ASR,
+  JSON-контракт/raw-текст, JNI Qwen-анализ и вопрос-ответ.
+- `BoundedDiarizationTest`: настоящие Pyannote/TitaNet embeddings на многоголосом fixture,
+  глобальные ID при переходе окна, ручное ожидаемое число и восстановление checkpoint.
+- `GrowingAudioTest`: настоящий ASR на русском fixture; PCM-производитель задерживает
+  хвост до появления уже распознанной и сохранённой реплики. Проверяет прогрессивную выдачу,
+  не скорость кодека на реальной двухчасовой записи.
+- `TranscriptionPipelineTest`, `FinalPipelineTest`: импорт/прерывание/повтор и сохранность
+  первичного ASR при глобальном проходе.
+- `LongAudioTest`: stress-повтор публичного WAV до примерно 15 минут. Это не независимая
+  встреча и не тест WER/DER.
+- `MeetingRegressionTest`: опционально повторяет встречу около 22 минут, уже импортированную
+  в локальные данные эмулятора. Тест не выгружает речь; пишет только техническую сводку
+  во внешний app files directory. Запустить с аргументом:
+  `adb shell am instrument -w -r -e reprocessExisting true -e class com.epicwalk.voiceanalyzer.MeetingRegressionTest com.epicwalk.voiceanalyzer.test/androidx.test.runner.AndroidJUnitRunner`.
+  Этот тест зависит от наличия такой записи и пропускается без неё. Перед ним убедитесь,
+  что эмулятор располагает личным разрешённым тестовым файлом.
+- `SpeakerAuditTest`: только диагностический пересчёт эмбеддингов/порогов; никаких
+  содержательных выводов о точности без разметки.
+
+Последний зафиксированный прогон MeetingRegressionTest на существующей записи:
+1,313,024 ms, elapsed 74,911 ms, первая реплика через 2,091 ms, 268 реплик,
+3 speaker clusters, 40 реплик короче 500 ms. Это результат одного файла на emulator
+x86_64 с 4096 MB и он не является DER. `docs/results/meeting-regression.json` хранит
+только эти метрики, не аудио и не транскрипт.
+
+## Остальные проверенные сценарии
+
+- JVM unit suite: 9 тестов для WAV/resampler, времени chunk и PhrasePlanner.
+- Последний сборочный прогон: app + androidTest APK + JVM suite успешны.
+- Инструментированный регрессионный прогон: MeetingRegressionTest,
+  BoundedDiarizationTest и GrowingAudioTest — OK (3 tests).
+- Вся фактическая история и артефакты: `docs/results/`, README и отчёты итераций.
+
+Не записывайте результаты вручную до завершения команды и проверки её лога.
+Инструментальный runner может завершиться с exit code 0 и при этом сообщить FAILURES;
+проверяйте итоговую строку `OK (n tests)` и отсутствие failure traces.
+
+## Непроведённые тесты
+
+Не измерены WER, DER, независимые временные метки по разметке, двухчасовая непрерывная
+запись/обработка, утечки памяти и пиковое PSS полного приложения. Физический Redmi Note 9 Pro
+не подключён; наличие ARM64-библиотеки не доказывает её работу на физическом устройстве.
+MP3/M4A matrix, overlap transcription и различные реальные русские группы из 2–5 участников
+нуждаются в отдельных проверках.

@@ -43,6 +43,35 @@ class TranscriptionPipeline(private val app: ScribeApplication) {
                 val fingerprint = digest.digest().joinToString("") { "%02x".format(it) } + ":pcm16k-v1"
                 val valid = normalized.isFile && normalized.length() > 0 &&
                     normalized.length() % 2L == 0L && marker.isFile && marker.readText() == fingerprint
+                if (!valid && app.models.state.value.diarizationReady) {
+                    marker.delete()
+                    coroutineScope {
+                        val available = kotlinx.coroutines.flow.MutableStateFlow(0L)
+                        val decoder = async(Dispatchers.IO) {
+                            val producer = currentCoroutineContext()
+                            AudioDecoder().decode(source, normalized, { producer.ensureActive() }) {
+                                available.value = normalized.length() / 2
+                            }
+                            available.value = normalized.length() / 2
+                            marker.writeText(fingerprint)
+                        }
+                        suspend fun awaitPcm(required: Long): Long {
+                            while (available.value < required && !decoder.isCompleted) {
+                                cancelled()
+                                delay(25)
+                            }
+                            if (decoder.isCompleted) decoder.await()
+                            return minOf(available.value, normalized.length() / 2)
+                        }
+                        progress(ProcessingState(id, "Подготавливаем первый фрагмент аудио", 0, conversation.durationMs))
+                        awaitPcm(31L * 16000)
+                        val expected = app.getSharedPreferences("processing", 0).getInt("expected-speakers", 0)
+                        com.epicwalk.voiceanalyzer.diarization.StreamingTranscription(app)
+                            .process(id, normalized, fingerprint, expected, progress, ::awaitPcm, conversation.durationMs)
+                        decoder.await()
+                    }
+                    return@withLock
+                }
                 if (!valid) {
                     marker.delete()
                     progress(ProcessingState(id, "Декодирование в PCM 16 кГц", 0, conversation.durationMs))
@@ -53,6 +82,12 @@ class TranscriptionPipeline(private val app: ScribeApplication) {
                 }
                 val sampleCount = normalized.length() / 2
                 val durationMs = sampleCount * 1000 / 16000
+                if (app.models.state.value.diarizationReady) {
+                    val expected = app.getSharedPreferences("processing", 0).getInt("expected-speakers", 0)
+                    com.epicwalk.voiceanalyzer.diarization.StreamingTranscription(app)
+                        .process(id, normalized, fingerprint, expected, progress)
+                    return@withLock
+                }
                 dao.processingState(id, "PROCESSING", "Распознавание речи", null)
                 val existing = dao.utterances(id).associateBy { it.id }
                 val vad = Vad(config = VadModelConfig(

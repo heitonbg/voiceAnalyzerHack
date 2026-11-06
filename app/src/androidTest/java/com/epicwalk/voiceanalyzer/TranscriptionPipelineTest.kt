@@ -35,8 +35,8 @@ class TranscriptionPipelineTest {
             assertEquals("CANCELLED", app.database.dao().conversation(id)!!.status)
             pipeline.process(id) { }
             val result = app.database.dao().conversation(id)!!
-            val utterances = app.database.dao().utterances(id)
-            assertEquals("TRANSCRIBED", result.status)
+            val utterances = app.database.dao().utterances(id).filter { it.sourcePass == "asr" }
+            assertEquals(if (app.models.state.value.diarizationReady) "COMPLETE" else "TRANSCRIBED", result.status)
             assertTrue(utterances.isNotEmpty())
             assertTrue(utterances.any { Regex("[А-Яа-яЁё]").containsMatchIn(it.rawText) })
             assertTrue(utterances.all { it.startMs >= 0 && it.endMs > it.startMs && it.endMs <= result.durationMs })

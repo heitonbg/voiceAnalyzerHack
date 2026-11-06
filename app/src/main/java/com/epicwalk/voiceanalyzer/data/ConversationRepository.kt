@@ -60,7 +60,7 @@ class ConversationRepository(private val context: Context, val dao: ScribeDao) {
     suspend fun remove(id: String) = withContext(Dispatchers.IO) {
         val conversation = dao.conversation(id) ?: return@withContext
         if (conversation.status in listOf("RECORDING", "PROCESSING", "IMPORTING")) return@withContext
-        File(conversation.audioPath).takeIf { it.parentFile == audioDirectory }?.delete()
+        audioDirectory.listFiles()?.filter { it.name.startsWith("$id.") }?.forEach { it.deleteRecursively() }
         dao.delete(id)
     }
 }

@@ -113,7 +113,11 @@ class TranscriptionPipeline(private val app: ScribeApplication) {
                     }
                 } finally { vad.release() }
                 dao.processingProgress(id, durationMs, durationMs)
-                dao.processingState(id, "TRANSCRIBED", "Текст распознан; диаризация ещё не выполнена", null)
+                if (app.models.state.value.diarizationReady) {
+                    val expected = app.getSharedPreferences("processing", 0).getInt("expected-speakers", 0)
+                    com.epicwalk.voiceanalyzer.diarization.FinalTranscription(app)
+                        .process(id, normalized, fingerprint, expected, progress)
+                } else dao.processingState(id, "TRANSCRIBED", "Текст распознан; диаризация ещё не выполнена", null)
             } catch (cancelled: CancellationException) {
                 withContext(NonCancellable) { dao.processingState(id, "CANCELLED", "Обработка отменена", null) }
                 throw cancelled

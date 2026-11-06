@@ -28,7 +28,9 @@ data class Utterance(
     val rawText: String,
     val editedText: String? = null,
     val editedSpeakerId: String? = null,
-    val provisional: Boolean = true
+    val provisional: Boolean = true,
+    @ColumnInfo(defaultValue = "'asr'") val sourcePass: String = "asr",
+    @ColumnInfo(defaultValue = "0") val overlap: Boolean = false
 )
 
 @Dao
@@ -42,13 +44,15 @@ interface ScribeDao {
     @Update suspend fun update(conversation: Conversation)
     @Query("DELETE FROM conversations WHERE id = :id")
     suspend fun delete(id: String)
-    @Query("SELECT * FROM utterances WHERE conversationId = :id ORDER BY startMs, endMs")
+    @Query("SELECT * FROM utterances WHERE conversationId = :id AND sourcePass = CASE WHEN EXISTS(SELECT 1 FROM utterances WHERE conversationId = :id AND sourcePass = 'diarized') OR (SELECT status FROM conversations WHERE id = :id) = 'COMPLETE' THEN 'diarized' ELSE 'asr' END ORDER BY startMs, endMs")
     fun observeUtterances(id: String): Flow<List<Utterance>>
     @Query("SELECT * FROM utterances WHERE conversationId = :id ORDER BY startMs, endMs")
     suspend fun utterances(id: String): List<Utterance>
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertUtterance(utterance: Utterance)
     @Update suspend fun updateUtterance(utterance: Utterance)
+    @Query("UPDATE utterances SET sourcePass = :archivePass WHERE conversationId = :id AND sourcePass = 'diarized'")
+    suspend fun archiveFinal(id: String, archivePass: String)
     @Query("UPDATE conversations SET status = :status, stage = :stage, error = :error WHERE id = :id")
     suspend fun processingState(id: String, status: String, stage: String, error: String?)
     @Query("UPDATE conversations SET processedMs = :processedMs, durationMs = :durationMs WHERE id = :id")
@@ -59,7 +63,15 @@ interface ScribeDao {
     suspend fun markInterrupted()
 }
 
-@Database(entities = [Conversation::class, Utterance::class], version = 1, exportSchema = false)
+@Database(entities = [Conversation::class, Utterance::class], version = 2, exportSchema = false)
 abstract class ScribeDatabase : RoomDatabase() {
     abstract fun dao(): ScribeDao
+    companion object {
+        val migration1To2 = object : androidx.room.migration.Migration(1, 2) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE utterances ADD COLUMN sourcePass TEXT NOT NULL DEFAULT 'asr'")
+                db.execSQL("ALTER TABLE utterances ADD COLUMN overlap INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+    }
 }

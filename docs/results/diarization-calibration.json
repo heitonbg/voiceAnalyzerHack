@@ -1,0 +1,36 @@
+{
+  "automatic": [
+    {
+      "threshold": 0.5,
+      "speakers": 8
+    },
+    {
+      "threshold": 0.6000000238418579,
+      "speakers": 6
+    },
+    {
+      "threshold": 0.699999988079071,
+      "speakers": 5
+    },
+    {
+      "threshold": 0.800000011920929,
+      "speakers": 4
+    },
+    {
+      "threshold": 0.8999999761581421,
+      "speakers": 4
+    },
+    {
+      "threshold": 1,
+      "speakers": 3
+    }
+  ],
+  "manual_requested": 4,
+  "manual_detected": 4,
+  "note": "Calibration on one public Chinese fixture, not independent validation or DER",
+  "abi": "x86_64",
+  "device": "sdk_gphone64_x86_64",
+  "android_api": 36,
+  "pss_kib_at_report": 106337,
+  "memory_note": "PSS snapshot, not peak RAM"
+}

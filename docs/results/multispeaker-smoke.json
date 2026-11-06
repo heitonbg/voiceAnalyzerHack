@@ -1,0 +1,11 @@
+{
+  "elapsed_including_load_ms": 4705,
+  "audio_seconds": 56.8606875,
+  "detected_speakers": 8,
+  "accuracy_note": "No reference RTTM; DER not measured",
+  "abi": "x86_64",
+  "device": "sdk_gphone64_x86_64",
+  "android_api": 36,
+  "pss_kib_at_report": 262729,
+  "memory_note": "PSS snapshot, not peak RAM"
+}

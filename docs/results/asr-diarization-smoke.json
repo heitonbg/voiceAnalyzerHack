@@ -1,0 +1,15 @@
+{
+  "audio_seconds": 11.29,
+  "diar_load_ms": 193,
+  "diar_inference_ms": 440,
+  "asr_load_ms": 2047,
+  "asr_inference_ms": 588,
+  "utterances": 2,
+  "speakers": 1,
+  "timestamps": "Estimated diarization boundaries; not word alignment",
+  "abi": "x86_64",
+  "device": "sdk_gphone64_x86_64",
+  "android_api": 36,
+  "pss_kib_at_report": 337218,
+  "memory_note": "PSS snapshot, not peak RAM"
+}

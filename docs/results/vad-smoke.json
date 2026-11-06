@@ -1,0 +1,19 @@
+{
+  "load_ms": 14,
+  "inference_ms": 117,
+  "regions": [
+    {
+      "start_sample": 1632,
+      "sample_count": 135168
+    },
+    {
+      "start_sample": 148064,
+      "sample_count": 27648
+    }
+  ],
+  "abi": "x86_64",
+  "device": "sdk_gphone64_x86_64",
+  "android_api": 36,
+  "pss_kib_at_report": 95229,
+  "memory_note": "PSS snapshot, not peak RAM"
+}

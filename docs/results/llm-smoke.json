@@ -1,0 +1,19 @@
+{
+  "device": "sdk_gphone64_x86_64",
+  "abi": "x86_64",
+  "android_api": 36,
+  "runtime": "llama.cpp v0.9.0 cd959bae99ff4bed22bef2604f45241c09bbb8c8",
+  "model": "Qwen3-0.6B-Q8_0.gguf",
+  "mode": "Standalone Android CPU executable; not app JNI integration",
+  "load_ms": 312,
+  "prefill_ms": 5384,
+  "generation_ms": 5567,
+  "generated_tokens": 80,
+  "reached_eos": true,
+  "maxrss_kib": 906824,
+  "threads": 2,
+  "context": 2048,
+  "input": "research/llm-smoke/prompt.txt, contains real ASR output from docs/results/real-transcript.json",
+  "quality_note": "Output echoes input metadata and is a weak summary; no invented decisions/tasks/deadlines observed on this input. Not a quality benchmark.",
+  "counter_note": "Use wall clock metrics above; llama internal counters were disabled and printed invalid infinite token rates."
+}

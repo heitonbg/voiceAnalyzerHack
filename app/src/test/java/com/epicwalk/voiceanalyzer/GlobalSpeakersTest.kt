@@ -6,6 +6,20 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class GlobalSpeakersTest {
+    @Test fun autoCountKeepsOneToSixDistinctSyntheticVoicesAcrossWindows() {
+        for (count in 1..6) {
+            val input = (0 until count * 3).map { index ->
+                val speaker = index % count
+                val start = index * 480000L
+                VoiceTurn(start, start + 48000, FloatArray(6) { if (it == speaker) 1f else 0f },
+                    localSpeakerKey = ((start / 480000L) shl 8) or speaker.toLong())
+            }
+            val assigned = GlobalSpeakers.assign(input)
+            assertEquals("count=$count", count, assigned.map { it.speakerId }.distinct().size)
+            for (i in input.indices) assertEquals(assigned[i % count].speakerId, assigned[i].speakerId)
+        }
+    }
+
     @Test fun knownSpeakerCountCanSeparateSimilarVoicesBeforeIrreversibleMerge() {
         val first = floatArrayOf(1f, 0f)
         val second = floatArrayOf(0.6f, 0.8f)

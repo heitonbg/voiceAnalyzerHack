@@ -5,11 +5,11 @@ Android 10+, Kotlin / Compose / Material 3. Полностью локальна�
 
 ## APK со всеми моделями
 
-Готовый APK: **app/build/outputs/apk/debug/app-debug.apk**.
+Локальная debug-сборка: **app/build/outputs/apk/debug/app-debug.apk**. Публичный APK пока не опубликован. [Установка и ограничения](docs/INSTALL_HACK.md).
 В нём уже находятся GigaAM v3 RNNT INT8, Silero VAD, Pyannote segmentation 3.0,
 TitaNet Small и Qwen3-0.6B Q8_0. Никаких папок моделей и скачивания на телефоне.
 Первый запуск копирует полный набор из 12 файлов моделей в приватное хранилище и проверяет SHA-256.
-Основной GigaAM v3 E2E RNNT INT8 encoder занимает 224,571,327 bytes (decoder/joiner/tokens идут отдельно). Точный размер финального APK в этой итерации не замерен.
+Установленный на эмуляторе APK: 1 130 954 334 байта; SHA-256 `a75c0ea7647b8e467a484fff76c0b37cede7424fcf8e106a858018585d8be8f0`. Основной GigaAM v3 E2E RNNT INT8 encoder занимает 224 571 327 байт.
 Свободное место: заложите не менее 2.5 GB на установку, распакованные веса и аудио.
 APK содержит arm64-v8a и x86_64. INTERNET в manifest отсутствует; backup отключён.
 

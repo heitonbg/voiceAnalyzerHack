@@ -30,7 +30,10 @@ class SpeakerAuditTest {
                     val buffer = ByteBuffer.wrap(Base64.decode(row.getString("vector"), Base64.NO_WRAP)).order(ByteOrder.LITTLE_ENDIAN)
                     FloatArray(buffer.remaining() / 4) { buffer.float }
                 } else null
-                VoiceTurn(row.getLong("start"), row.getLong("end"), embedding, row.getBoolean("overlap"))
+                VoiceTurn(
+                    row.getLong("start"), row.getLong("end"), embedding, row.getBoolean("overlap"),
+                    localSpeakerKey = row.takeIf { it.has("localKey") }?.getLong("localKey")
+                )
             }
             val oldRows = app.database.dao().utterances(conversation.id).filter { it.sourcePass == "diarized" }
             fun count(rows: List<VoiceTurn>) = rows.map { it.speakerId }.filter { it != "speaker_unknown" }.distinct().size

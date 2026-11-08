@@ -17,6 +17,8 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -109,7 +111,7 @@ class MainActivity : ComponentActivity() {
 private fun PrivateScribe(model: ScribeViewModel, record: () -> Unit) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val listState = rememberLazyListState()
-    var followTranscript by rememberSaveable { mutableStateOf(true) }
+    var followTranscript by rememberSaveable { mutableStateOf(false) }
     val conversations by model.conversations.collectAsStateWithLifecycle()
     val recording by model.recording.collectAsStateWithLifecycle()
     val busy by model.busy.collectAsStateWithLifecycle()
@@ -129,6 +131,7 @@ private fun PrivateScribe(model: ScribeViewModel, record: () -> Unit) {
     var nameTarget by rememberSaveable { mutableStateOf<String?>(null) }
     var nameDraft by rememberSaveable { mutableStateOf("") }
     var transcriptSearch by rememberSaveable { mutableStateOf("") }
+    var speakerFilter by rememberSaveable(selectedId) { mutableStateOf("Все") }
     val namesVersion by model.speakerNamesVersion.collectAsStateWithLifecycle()
     val exportFile = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
         if (uri != null) selectedId?.let { model.export(it, uri) }
@@ -138,10 +141,18 @@ private fun PrivateScribe(model: ScribeViewModel, record: () -> Unit) {
         selectedId?.let { model.utterances(it) } ?: flowOf(emptyList<Utterance>())
     }
     val transcript by transcriptFlow.collectAsStateWithLifecycle(initialValue = emptyList())
-    val import = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        uri?.let { model.import(it) { id -> selectedId = id; settings = false; followTranscript = true } }
+    val visibleTranscript = remember(transcript, transcriptSearch, speakerFilter) {
+        transcript.filter { row ->
+            val speaker = row.editedSpeakerId ?: row.speakerId
+            val candidateIds = row.speakerCandidates?.split("|").orEmpty()
+            (speakerFilter == "Все" || speaker == speakerFilter || speakerFilter in candidateIds) &&
+                (row.editedText ?: row.rawText).contains(transcriptSearch, true)
+        }
     }
-    LaunchedEffect(selectedId, transcript.size) {
+    val import = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let { model.import(it) { id -> selectedId = id; settings = false; followTranscript = false } }
+    }
+    LaunchedEffect(selectedId, transcript.size, followTranscript) {
         if (followTranscript && processing.id == selectedId && transcript.isNotEmpty()) {
             withFrameNanos { }
             val last = listState.layoutInfo.totalItemsCount - 1
@@ -271,7 +282,9 @@ private fun PrivateScribe(model: ScribeViewModel, record: () -> Unit) {
                             }
                         }
                         Text("Участники · нажмите для переименования", style = MaterialTheme.typography.labelLarge)
-                        transcript.map { it.editedSpeakerId ?: it.speakerId }.distinct().forEach { speaker ->
+                        transcript.flatMap { row ->
+                            listOf(row.editedSpeakerId ?: row.speakerId) + row.speakerCandidates?.split("|").orEmpty()
+                        }.distinct().forEach { speaker ->
                             TextButton(onClick = { nameTarget = speaker; nameDraft = model.speakerName(selected.id, speaker) }) {
                                 Text(model.speakerName(selected.id, speaker))
                             }
@@ -283,10 +296,29 @@ private fun PrivateScribe(model: ScribeViewModel, record: () -> Unit) {
                     OutlinedTextField(transcriptSearch, { transcriptSearch = it }, Modifier.fillMaxWidth(),
                         label = { Text("Поиск в расшифровке") }, singleLine = true,
                         leadingIcon = { Icon(Icons.Rounded.Search, null) })
-                    Text("Расшифровка · ${transcript.size}", style = MaterialTheme.typography.titleLarge)
-                    if (processing.id == selected.id) Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("Следить за новыми репликами", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
-                        Switch(followTranscript, onCheckedChange = { followTranscript = it })
+                    Text("Расшифровка · ${visibleTranscript.size} / ${transcript.size}", style = MaterialTheme.typography.titleLarge)
+                    if (transcript.isNotEmpty()) Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        AssistChip(onClick = { speakerFilter = "Все" }, label = { Text("Все") },
+                            leadingIcon = if (speakerFilter == "Все") ({ Icon(Icons.Rounded.Check, null) }) else null)
+                        transcript.flatMap { row ->
+                            listOf(row.editedSpeakerId ?: row.speakerId) + row.speakerCandidates?.split("|").orEmpty()
+                        }.distinct().forEach { speaker ->
+                            AssistChip(onClick = { speakerFilter = speaker },
+                                label = { Text(model.speakerName(selected.id, speaker)) },
+                                leadingIcon = if (speakerFilter == speaker) ({ Icon(Icons.Rounded.Check, null) }) else null)
+                        }
+                    }
+                    if (processing.id == selected.id) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("Автопрокрутка к новым репликам", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+                            Switch(followTranscript, onCheckedChange = { followTranscript = it })
+                        }
+                        if (!followTranscript) TextButton(onClick = { followTranscript = true }) {
+                            Icon(Icons.Rounded.South, null)
+                            Spacer(Modifier.width(6.dp))
+                            Text("К новым репликам")
+                        }
                     }
                     Text(if (selected.status == "COMPLETE") "Глобальные участники. Времена — границы сегментов речи, не слов." else "Предварительные реплики. Говорящие уточняются после глобальной диаризации.",
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -301,7 +333,7 @@ private fun PrivateScribe(model: ScribeViewModel, record: () -> Unit) {
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
-                items(transcript.filter { (it.editedText ?: it.rawText).contains(transcriptSearch, true) }, key = { it.id }) { utterance ->
+                items(visibleTranscript, key = { it.id }) { utterance ->
                     Card(onClick = { model.playFrom(selected.id, selected.audioPath, utterance.startMs) },
                         shape = RoundedCornerShape(20.dp),
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
@@ -311,9 +343,18 @@ private fun PrivateScribe(model: ScribeViewModel, record: () -> Unit) {
                             Text(utterance.editedText ?: utterance.rawText, style = MaterialTheme.typography.bodyLarge)
                                                         val speaker = utterance.editedSpeakerId ?: utterance.speakerId
                             val palette = listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.tertiary, MaterialTheme.colorScheme.secondary)
-                            Text(model.speakerName(selected.id, speaker) +
-                                if (utterance.overlap) " · пересечение речи" else if (utterance.provisional) " · предварительно" else "",
-                                style = MaterialTheme.typography.labelLarge, color = palette[(speaker.hashCode() and Int.MAX_VALUE) % palette.size])
+                            val candidateNames = if (utterance.editedSpeakerId == null)
+                                utterance.speakerCandidates?.split("|")?.distinct()
+                                    ?.joinToString(" + ") { model.speakerName(selected.id, it) }.orEmpty()
+                            else ""
+                            val speakerLabel = when {
+                                candidateNames.isNotEmpty() -> "Пересечение · возможно: $candidateNames"
+                                utterance.overlap -> "Пересечение · говорящий не установлен"
+                                utterance.provisional -> "${model.speakerName(selected.id, speaker)} · предварительно"
+                                else -> model.speakerName(selected.id, speaker)
+                            }
+                            Text(speakerLabel, style = MaterialTheme.typography.labelLarge,
+                                color = palette[(speaker.hashCode() and Int.MAX_VALUE) % palette.size])
                             TextButton(onClick = { editRow = utterance; editText = utterance.editedText ?: utterance.rawText; editSpeaker = speaker }) {
                                 Text("Исправить текст / говорящего")
                             }
@@ -324,7 +365,7 @@ private fun PrivateScribe(model: ScribeViewModel, record: () -> Unit) {
             else -> HomeContent(conversations.filter { it.title.contains(search, true) },
                 recording, busy, search, { search = it }, record,
                 { import.launch(arrayOf("audio/*")) }, model::recordingAction,
-                { selectedId = it }, contentPadding)
+                { selectedId = it; followTranscript = false }, contentPadding)
         }
     }
     val message by model.message.collectAsStateWithLifecycle()

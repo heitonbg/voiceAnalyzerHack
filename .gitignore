@@ -1,4 +1,11 @@
 *.iml
+*.apk
+*.aab
+*.m4a
+*.mp3
+*.wav
+*.pcm
+.idea/
 *.onnx
 *.gguf
 *.aar

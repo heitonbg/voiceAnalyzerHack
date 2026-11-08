@@ -37,6 +37,18 @@ class BundledOfflineTest {
             array.getJSONObject(i).keys().asSequence().toSet())
         File(app.filesDir, "bundled-real-transcript.json").writeText(json)
         val report = LocalAnalysis(app).run(id) { _, _ -> }
+        val pdf = File(app.cacheDir, "bundled-real-report.pdf")
+        com.epicwalk.voiceanalyzer.core.ConversationReport.pdf(conversation, rows, pdf,
+            sections = report.facts.map { it.kind to it.ids.joinToString(" ") { source ->
+                rows.first { it.id == source }.rawText
+            } }, name = { it })
+        android.os.ParcelFileDescriptor.open(pdf, android.os.ParcelFileDescriptor.MODE_READ_ONLY).use { descriptor ->
+            android.graphics.pdf.PdfRenderer(descriptor).use { renderer ->
+                assertTrue("PDF must have at least one readable page", renderer.pageCount > 0)
+                renderer.openPage(0).use { page -> assertTrue(page.width > 0 && page.height > 0) }
+            }
+        }
+        pdf.delete()
         val answer = LocalAnalysis(app).run(id, "Какое дерево упомянуто у лукоморья?") { _, _ -> }
         File(app.getExternalFilesDir(null), "bundled-diagnostic.json").writeText(JSONObject().put("transcript", JSONObject(json))
             .put("report", report.toString()).put("answer", answer.toString()).toString(2))

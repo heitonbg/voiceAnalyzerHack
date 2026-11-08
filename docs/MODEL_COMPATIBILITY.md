@@ -10,11 +10,24 @@
 | GigaAM v3 CTC | model.int8.onnx ≈225 MB + tokens | MIT в конкретном v3-репозитории | sherpa NeMo CTC | sherpa NeMo CTC | Кандидат альтернативы; сравнение WER не выполнено |
 | GigaAM v2 CTC | ONNX INT8; размер уточняется до выбора | Проверить LICENSE конкретного экспорта | sherpa NeMo CTC | sherpa NeMo CTC | Резерв, не интегрирован |
 | Pyannote segmentation 3.0 | sherpa ONNX ≈5.7 MiB FP32 / ≈1.5 MiB INT8 | MIT; исходные веса gated на HF | Есть официальный APK sherpa | Есть официальный APK sherpa | Только локальные окна 10 секунд; нужны глобальные embeddings |
-| NeMo TitaNet Small | nemo_en_titanet_small.onnx; оригинал NGC 35.77 MB compressed | NGC ссылается на NeMo Toolkit license; проверить NOTICE конкретного ONNX | Есть официальный APK sherpa pyannote+nemo | Есть официальный APK sherpa pyannote+nemo | Нужна оценка на русских голосах; размер ONNX и RAM не измерены |
+| NeMo TitaNet Small | titanet.onnx, SHA в ModelStore | NGC ссылается на NeMo Toolkit license; проверить NOTICE конкретного ONNX | sherpa CPU | sherpa CPU | Основная модель; реальная x86_64 оценка на локальном русском эталоне, слабая диаризация; ARM не проверен |
+| WeSpeaker ResNet34-LM (VoxCeleb) | ONNX 26,530,550 bytes; SHA-256 `e9848563da86f263117134dfd7ad63c92355b37de492b55e325400c9d9c39012` | CC BY 4.0 по лицензии VoxCeleb; нужна атрибуция | sherpa CPU runtime | Реальный x86_64 inference прошёл | Эксперимент отклонён: медленнее TitaNet и не восстановил 4 эталонных голоса; в основной APK не включён |
 | Qwen3 0.6B | Официальный GGUF Q8_0 ≈639 MB | Apache-2.0 | llama.cpp Android CPU | llama.cpp Android CPU build | Не загружен и не измерен; Q4 нельзя называть официальным Qwen-экспортом без проверки |
 
 Размеры округлены по страницам поставщиков, это НЕ измерения RAM. ABI относится к нативной библиотеке, веса ONNX/GGUF не зависят от ABI.
 Фактический состав AAR и загрузку JNI необходимо проверить отдельно.
+
+## Фактически интегрированная ASR модель (проверка 2026-11-07)
+
+В APK включён GigaAM v3 E2E RNNT INT8 из sherpa-onnx export `Alexxerm/gigaam-v3-e2e-rnnt-sherpa-onnx`, pinned revision `c0acd38c8aeb2bdc04da221bd661ffcdb9645f7d`. Source model authors: Salute Developers GigaAM; лицензия модели MIT по репозиторию авторов. Export требует NeMo transducer config, feature_dim=64; реальные inputs обрабатываются ограниченными блоками Android CPU. Размер encoder 224,571,327 bytes; decoder 1,159,351; joiner 687,791; tokens 13,354. Проверены SHA-256 в `ModelStore.kt` / source asset inventory. Все четыре файла входят в APK и копируются офлайн.
+
+- arm64-v8a: native code собран; реальное исполнение на ARM-устройстве не проверено.
+- x86_64: реальный RNNT и word-token timing smoke прошли на API 36 emulator; результат записан в `docs/results/bundled-diagnostic.json`.
+- Длинный private reference на том же x86_64 эмуляторе: 21:53, свежий инференс 244.8–256.1 s, sampled process PSS 770–776 MiB; это только один файл и приблизительная выборка памяти.
+- Этот export возвращает токены и emission timestamps. Они дают пригодные approximate word timings, но не являются forced alignment. 125 из 129 блоков длинного теста выдали валидированные токены/времена.
+- Punctuation smoke подтверждён на коротком публичном русском fixture; punctuation-specific quality metric не считалась.
+
+[Официальный GigaAM upstream / license](https://github.com/salute-developers/GigaAM) · [Pinned sherpa-compatible export](https://huggingface.co/Alexxerm/gigaam-v3-e2e-rnnt-sherpa-onnx/tree/c0acd38c8aeb2bdc04da221bd661ffcdb9645f7d). Оценка качества/памяти относится к эмулятору x86_64; сторонние desktop benchmark не использованы.
 
 ## Первичные источники
 
@@ -27,6 +40,8 @@
 - [ONNX-экспорт Pyannote и запуск с TitaNet](https://k2-fsa.github.io/sherpa/onnx/speaker-diarization/models.html)
 - [Готовые Android APK обеих ABI](https://k2-fsa.github.io/sherpa/onnx/speaker-diarization/apk.html)
 - [TitaNet Small NGC, license section](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/nemo/models/titanet_small)
+- [WeSpeaker pretrained models, ONNX availability and weight licenses](https://github.com/wenet-e2e/wespeaker/blob/master/docs/pretrained.md)
+- [WeSpeaker ResNet34-LM ONNX candidate (sherpa release)](https://github.com/k2-fsa/sherpa-onnx/releases/tag/speaker-recongition-models)
 - [Qwen официальный GGUF](https://huggingface.co/Qwen/Qwen3-0.6B-GGUF)
 - [llama.cpp Android: JNI, NDK, CPU, ограничения контекста](https://github.com/ggml-org/llama.cpp/blob/master/docs/android.md)
 - [sherpa 2.0.1, AAR и SHA256](https://github.com/k2-fsa/sherpa-onnx/releases/tag/v2.0.1)

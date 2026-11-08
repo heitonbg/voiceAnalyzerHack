@@ -62,8 +62,14 @@ object ConversationReport {
             paragraph("Расшифровка", true)
             for (row in rows.sortedWith(compareBy({ it.startMs }, { it.endMs }))) {
                 val speaker = row.editedSpeakerId ?: row.speakerId
-                paragraph("${timestamp(row.startMs)} — ${timestamp(row.endMs)} · ${name(speaker)}" +
-                    if (row.overlap) " · пересечение речи" else "", true)
+                val candidates = if (row.editedSpeakerId == null) row.speakerCandidates?.split("|")
+                    ?.distinct()?.joinToString(" + ") { name(it) }.orEmpty() else ""
+                val attribution = when {
+                    candidates.isNotEmpty() -> " · пересечение, возможны: $candidates"
+                    row.overlap -> " · пересечение, говорящий не установлен"
+                    else -> ""
+                }
+                paragraph("${timestamp(row.startMs)} — ${timestamp(row.endMs)} · ${name(speaker)}$attribution", true)
                 paragraph(row.editedText ?: row.rawText)
             }
             page?.let(document::finishPage); page = null

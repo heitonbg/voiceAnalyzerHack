@@ -8,7 +8,7 @@ import kotlinx.coroutines.*
 
 class ScribeApplication : Application() {
     val database by lazy { Room.databaseBuilder(this, ScribeDatabase::class.java, "privatescribe.db")
-        .addMigrations(ScribeDatabase.migration1To2).build() }
+        .addMigrations(ScribeDatabase.migration1To2, ScribeDatabase.migration2To3).build() }
     val models by lazy { com.epicwalk.voiceanalyzer.core.ModelStore(this) }
     val repository by lazy { ConversationRepository(this, database.dao()) }
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)

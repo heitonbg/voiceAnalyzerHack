@@ -2,17 +2,21 @@ package com.epicwalk.voiceanalyzer.diarization
 
 /** Carries unfinished speech across processing windows. No fabricated text or word alignment. */
 object PhrasePlanner {
-    fun plan(voices: List<VoiceTurn>, after: Long, through: Long, finalWindow: Boolean,
+    fun plan(voices: List<VoiceTurn>, after: Long, through: Long, finalWindow: Boolean, speechOnly: Boolean = false,
         quietCut: (Long, Long) -> Long): List<VoiceTurn> {
         val merged = ArrayList<VoiceTurn>()
         for (turn in voices) {
             if (turn.endSample <= after) continue
             val voice = turn.copy(startSample = maxOf(turn.startSample, after))
             val previous = merged.lastOrNull()
-            if (previous != null && previous.speakerId != "speaker_unknown" &&
-                previous.speakerId == voice.speakerId && previous.overlap == voice.overlap &&
-                voice.startSample - previous.endSample in 0..8000) {
-                merged[merged.lastIndex] = previous.copy(endSample = voice.endSample)
+            val joinsSpeechCoverage = previous != null &&
+                if (speechOnly) voice.startSample <= previous.endSample + 8000
+                else voice.startSample - previous.endSample in 0..8000
+            if (previous != null && joinsSpeechCoverage && (speechOnly || (previous.speakerId != "speaker_unknown" &&
+                previous.speakerId == voice.speakerId && previous.overlap == voice.overlap))) {
+                merged[merged.lastIndex] = previous.copy(endSample = maxOf(previous.endSample, voice.endSample),
+                    overlap = previous.overlap || voice.overlap,
+                    speakerId = if (speechOnly) "speaker_unknown" else previous.speakerId)
             } else merged += voice
         }
         val result = ArrayList<VoiceTurn>()

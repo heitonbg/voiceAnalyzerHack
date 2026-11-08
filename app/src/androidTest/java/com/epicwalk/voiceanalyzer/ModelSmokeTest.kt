@@ -173,15 +173,80 @@ class ModelSmokeTest {
         assertEquals("Manual cluster count must be honored", 4, knownCount)
     }
 
-    private fun diarizer(clusters: Int = -1, threshold: Float = 0.5f) =
+    @Test fun cpuThreadSweepOnRealPublicFixtures() {
+        val asrSamples = wav(model("example.wav"))
+        val asrResults = JSONArray()
+        for (threads in listOf(1, 2, 4)) {
+            val loadStart = SystemClock.elapsedRealtime()
+            val asr = OfflineRecognizer(config = OfflineRecognizerConfig(
+                modelConfig = OfflineModelConfig(
+                    transducer = OfflineTransducerModelConfig(
+                        encoder = model("encoder.int8.onnx"),
+                        decoder = model("decoder.onnx"), joiner = model("joiner.onnx")
+                    ), tokens = model("tokens.txt"), modelType = "nemo_transducer",
+                    provider = "cpu", numThreads = threads
+                )
+            ))
+            val loadMs = SystemClock.elapsedRealtime() - loadStart
+            val runStart = SystemClock.elapsedRealtime()
+            val stream = asr.createStream()
+            val resultText: String
+            var pssAfterInference: Long
+            try {
+                stream.acceptWaveform(asrSamples, 16000)
+                asr.decode(stream)
+                resultText = asr.getResult(stream).text
+                pssAfterInference = Debug.getPss()
+            } finally {
+                stream.release()
+                asr.release()
+            }
+            val inferenceMs = SystemClock.elapsedRealtime() - runStart
+            asrResults.put(JSONObject().put("threads", threads).put("model_load_ms", loadMs)
+                .put("inference_ms", inferenceMs)
+                .put("audio_seconds", asrSamples.size / 16000.0)
+                .put("rtf", inferenceMs / (asrSamples.size / 16.0))
+                .put("pss_kib_after_inference", pssAfterInference)
+                .put("nonempty_output", resultText.isNotBlank()))
+        }
+
+        val diarSamples = wav(model("four-speakers.wav"))
+        val diarResults = JSONArray()
+        for (threads in listOf(1, 2, 4)) {
+            val loadStart = SystemClock.elapsedRealtime()
+            val engine = diarizer(threads = threads)
+            val loadMs = SystemClock.elapsedRealtime() - loadStart
+            val runStart = SystemClock.elapsedRealtime()
+            try {
+                val turns = engine.process(diarSamples)
+                val inferenceMs = SystemClock.elapsedRealtime() - runStart
+                val pssAfterInference = Debug.getPss()
+                diarResults.put(JSONObject().put("threads", threads).put("model_load_ms", loadMs)
+                    .put("inference_ms", inferenceMs)
+                    .put("audio_seconds", diarSamples.size / 16000.0)
+                    .put("rtf", inferenceMs / (diarSamples.size / 16.0))
+                    .put("segments", turns.size)
+                    .put("detected_speakers", turns.map { it.speaker }.distinct().size)
+                    .put("pss_kib_after_inference", pssAfterInference))
+            } finally {
+                engine.release()
+            }
+        }
+        report("cpu-thread-profile.json", JSONObject()
+            .put("asr_gigaam_v3_encoder_int8", asrResults)
+            .put("diarization_pyannote3_titanet", diarResults)
+            .put("interpretation", "Real public fixtures; no independent transcript or RTTM, so no WER/DER claim. Inference-only RTF excludes load. PSS values below are snapshots, not peak."))
+    }
+
+    private fun diarizer(clusters: Int = -1, threshold: Float = 0.5f, threads: Int = 1) =
         OfflineSpeakerDiarization(config = OfflineSpeakerDiarizationConfig(
             segmentation = OfflineSpeakerSegmentationModelConfig(
                 pyannote = OfflineSpeakerSegmentationPyannoteModelConfig(
                     model("sherpa-onnx-pyannote-segmentation-3-0/model.onnx")),
-                numThreads = 1, provider = "cpu"
+                numThreads = threads, provider = "cpu"
             ),
             embedding = SpeakerEmbeddingExtractorConfig(
-                model = model("titanet.onnx"), numThreads = 1, provider = "cpu"),
+                model = model("titanet.onnx"), numThreads = threads, provider = "cpu"),
             clustering = FastClusteringConfig(numClusters = clusters, threshold = threshold)
         ))
 

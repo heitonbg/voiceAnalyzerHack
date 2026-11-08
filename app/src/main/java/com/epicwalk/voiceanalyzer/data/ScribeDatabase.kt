@@ -30,7 +30,8 @@ data class Utterance(
     val editedSpeakerId: String? = null,
     val provisional: Boolean = true,
     @ColumnInfo(defaultValue = "'asr'") val sourcePass: String = "asr",
-    @ColumnInfo(defaultValue = "0") val overlap: Boolean = false
+    @ColumnInfo(defaultValue = "0") val overlap: Boolean = false,
+    val speakerCandidates: String? = null
 )
 
 @Dao
@@ -55,6 +56,8 @@ interface ScribeDao {
     suspend fun utterance(id: String): Utterance?
     @Query("UPDATE utterances SET sourcePass = :archivePass WHERE conversationId = :id AND sourcePass = 'diarized'")
     suspend fun archiveFinal(id: String, archivePass: String)
+    @Query("UPDATE utterances SET sourcePass = :archivePass WHERE conversationId = :id AND sourcePass IN ('diarized', 'asr')")
+    suspend fun archiveTranscription(id: String, archivePass: String)
     @Query("UPDATE conversations SET status = :status, stage = :stage, error = :error WHERE id = :id")
     suspend fun processingState(id: String, status: String, stage: String, error: String?)
     @Query("UPDATE conversations SET processedMs = :processedMs, durationMs = :durationMs WHERE id = :id")
@@ -65,7 +68,7 @@ interface ScribeDao {
     suspend fun markInterrupted()
 }
 
-@Database(entities = [Conversation::class, Utterance::class], version = 2, exportSchema = false)
+@Database(entities = [Conversation::class, Utterance::class], version = 3, exportSchema = false)
 abstract class ScribeDatabase : RoomDatabase() {
     abstract fun dao(): ScribeDao
     companion object {
@@ -73,6 +76,11 @@ abstract class ScribeDatabase : RoomDatabase() {
             override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE utterances ADD COLUMN sourcePass TEXT NOT NULL DEFAULT 'asr'")
                 db.execSQL("ALTER TABLE utterances ADD COLUMN overlap INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+        val migration2To3 = object : androidx.room.migration.Migration(2, 3) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE utterances ADD COLUMN speakerCandidates TEXT")
             }
         }
     }

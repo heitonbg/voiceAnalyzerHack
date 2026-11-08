@@ -34,6 +34,7 @@ class ModelStore(private val context: Context) {
             "Модель $path не установлена или не прошла проверку. Выберите комплект в настройках."
         }
     }
+
     private fun verified(spec: ModelSpec): Boolean {
         val file = File(directory, spec.path)
         return file.isFile && file.length() > 0 &&
@@ -105,6 +106,10 @@ class ModelStore(private val context: Context) {
 
     companion object {
         val specs = listOf(
+            ModelSpec("e2e/encoder.int8.onnx", "aa4e9bd1d8f1b30534c0b56d743970be53fd102dba639c2b1cc06e2aa898ada0", "ASR"),
+            ModelSpec("e2e/decoder.onnx", "ea08443676485385c0dd31d938233bffaed6e52d47d84844c9b568589f1c9b27", "ASR"),
+            ModelSpec("e2e/joiner.onnx", "ade116563dbf66e503b0994efab6b5861412743e52bf31c39fc3fffa3783d5d1", "ASR"),
+            ModelSpec("e2e/tokens.txt", "39abae20e692998290c574e606f11a9edef2902a1995463fcff63d1490cf22b7", "ASR"),
             ModelSpec("encoder.int8.onnx", "0ec54e5f130a91c0f228d21795ede10b31c992a1f73e45dcd827e843a71a9b50", "ASR"),
             ModelSpec("decoder.onnx", "5d1cfef155d8e07f213bd2f3229b5f6c5c29355c7fa5c1b9eb62cb1925725254", "ASR"),
             ModelSpec("joiner.onnx", "fd1d02f45c2ad3d6b67cc149811ad794ab4b020ed49a0a9e2790a8619d1cddd8", "ASR"),

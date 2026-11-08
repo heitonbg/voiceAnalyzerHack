@@ -75,12 +75,13 @@ androidComponents {
             modelFiles.from(rootProject.fileTree("research/models") {
                 include("encoder.int8.onnx", "decoder.onnx", "joiner.onnx", "tokens.txt",
                     "silero_vad.onnx", "titanet.onnx", "Qwen3-0.6B-Q8_0.gguf",
-                    "sherpa-onnx-pyannote-segmentation-3-0/model.onnx")
+                    "sherpa-onnx-pyannote-segmentation-3-0/model.onnx", "e2e/*.onnx", "e2e/tokens.txt")
             })
             outputDirectory.set(layout.buildDirectory.dir("generated/offlineModels/${variant.name}"))
             doFirst {
                 val required = listOf("encoder.int8.onnx", "decoder.onnx", "joiner.onnx", "tokens.txt",
                     "silero_vad.onnx", "titanet.onnx", "Qwen3-0.6B-Q8_0.gguf",
+                    "e2e/encoder.int8.onnx", "e2e/decoder.onnx", "e2e/joiner.onnx", "e2e/tokens.txt",
                     "sherpa-onnx-pyannote-segmentation-3-0/model.onnx")
                 required.forEach { check(rootProject.file("research/models/$it").isFile) { "Missing bundled model: $it" } }
             }
